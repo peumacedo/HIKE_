@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { getUserMemberships, requireSession } from '@/lib/auth/helpers';
 import { listTemplates } from '@/lib/data/templates';
 import { AppShell } from '@/components/layout/AppShell';
@@ -14,7 +15,7 @@ export default async function TemplatesPage() {
     <AppShell>
       <PageHeader
         title="Templates"
-        description="Base de templates por organização para padronizar a criação dos projetos."
+        description="Camada 2 da hierarquia: defaults financeiros entre organização e projeto."
       />
       <div className="grid gap-4 p-6">
         {templates.length === 0 ? (
@@ -28,6 +29,9 @@ export default async function TemplatesPage() {
               <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
                 Status: {template.active ? 'Ativo' : 'Inativo'}
               </p>
+              <Link href={`/templates/${template.id}`} className="mt-3 inline-block text-sm font-medium underline">
+                Abrir defaults financeiros
+              </Link>
             </SectionCard>
           ))
         )}

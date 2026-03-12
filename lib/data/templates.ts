@@ -15,3 +15,10 @@ export async function listTemplates(organizationId: string) {
 
   return data;
 }
+
+export async function getTemplateById(templateId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('project_templates').select('*').eq('id', templateId).single();
+  if (error) throw error;
+  return data;
+}
