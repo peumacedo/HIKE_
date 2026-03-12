@@ -2,12 +2,13 @@
 
 ## O que foi implementado
 - Login por email/senha com Supabase Auth (`app/login/page.tsx`).
-- Logout server-side no dashboard.
+- Logout server-side no dashboard (`app/dashboard/page.tsx`).
 - Middleware para proteção de rotas e redirecionamento automático para `/login` quando não autenticado (`middleware.ts`).
 - Helpers de autenticação/autorização:
   - `requireSession`
   - `getUserMemberships`
   - `requireOrgRole`
+- Trigger no banco para criar/atualizar `public.profiles` automaticamente ao criar usuário em `auth.users` (`supabase/migrations/002_auth_profile_trigger.sql`).
 
 ## Papéis e permissões
 - `admin`: gestão completa da organização e integrações.
@@ -21,10 +22,12 @@
   1. aplicação (helpers)
   2. banco (RLS)
 
+## Fluxo operacional mínimo (dev)
+1. Criar usuário no Supabase Auth (Dashboard ou SQL admin).
+2. Confirmar que o trigger criou `public.profiles` automaticamente.
+3. Inserir vínculo na tabela `organization_members` para liberar acesso às rotas protegidas.
+4. Executar seed ajustando `AUTH_USER_ID` para o UUID real.
+
 ## Limitações atuais
 - Seleção de organização ativa usa a primeira membership retornada.
 - Não há fluxo de convite/onboarding de usuários nesta etapa.
-
-## Como prepara os próximos blocos
-- Permite evoluir para selector de organização e context switching.
-- Permite criar gestão de usuários e trilha de auditoria por papel sem quebrar contratos atuais.

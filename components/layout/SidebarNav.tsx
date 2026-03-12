@@ -8,12 +8,12 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/premissas', label: 'Premissas' },
   { href: '/templates', label: 'Templates' },
-  { href: '/projetos', label: 'Projetos' },
+  { href: '/projects', label: 'Projetos' },
   { href: '/fluxo-caixa', label: 'Fluxo de Caixa' },
   { href: '/funding', label: 'Funding' },
   { href: '/cenarios', label: 'Cenários' },
   { href: '/integracoes', label: 'Integrações' },
-  { href: '/relatorios', label: 'Relatórios' }
+  { href: '/relatorios', label: 'Relatórios' },
 ];
 
 export function SidebarNav() {
@@ -34,7 +34,7 @@ export function SidebarNav() {
               href={item.href}
               className={cn(
                 'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                isActive ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-900 hover:text-white',
               )}
             >
               {item.label}

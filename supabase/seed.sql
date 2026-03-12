@@ -1,16 +1,13 @@
--- Development seed (execute after creating one auth user)
--- Replace UUID placeholders with real auth.users id
+-- Development seed
+-- Pré-condição: criar usuário no Supabase Auth e substituir AUTH_USER_ID abaixo.
+-- Exemplo: AUTH_USER_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
 insert into public.organizations (id, name, slug)
 values ('11111111-1111-1111-1111-111111111111', 'Hike Demo Org', 'hike-demo')
 on conflict (id) do nothing;
 
-insert into public.profiles (id, full_name, email)
-values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Demo Admin', 'admin@hike.local')
-on conflict (id) do update
-set full_name = excluded.full_name,
-    email = excluded.email;
-
+-- O perfil é criado automaticamente pelo trigger `on_auth_user_created`.
+-- Ajuste o UUID para o id real de auth.users.
 insert into public.organization_members (organization_id, profile_id, role)
 values ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin')
 on conflict (organization_id, profile_id) do nothing;
