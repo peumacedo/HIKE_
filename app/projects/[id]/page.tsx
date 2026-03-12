@@ -1,19 +1,59 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
-import { getProjectById, getProjectCashProfile, getProjectDisbursementProfile, listProjectCostCategories, createProjectCostCategory, updateProjectCostCategory, updateProjectDetails, upsertProjectCashProfile, upsertProjectDisbursementProfile } from '@/lib/data/projects';
+import { redirect } from 'next/navigation';
+import {
+  createProjectCostCategory,
+  getProjectById,
+  getProjectCashProfile,
+  getProjectDisbursementProfile,
+  listProjectCostCategories,
+  updateProjectCostCategory,
+  updateProjectDetails,
+  upsertProjectCashProfile,
+  upsertProjectDisbursementProfile,
+} from '@/lib/data/projects';
 import { requireOrgRole, requireSession } from '@/lib/auth/helpers';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
-import { CORE_FINANCIAL_PARAMETERS, listProjectAssumptionOverrides, resolveProjectEffectiveAssumptions, upsertProjectAssumptionOverride } from '@/lib/data/assumptions';
+import {
+  CORE_FINANCIAL_PARAMETERS,
+  deleteProjectAssumptionOverride,
+  listProjectAssumptionOverrides,
+  resolveProjectEffectiveAssumptions,
+  syncCashProfileToAssumptionOverrides,
+  syncDisbursementProfileToAssumptionOverrides,
+  upsertProjectAssumptionOverride,
+} from '@/lib/data/assumptions';
 
 type ProjectPageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ error?: string }>;
 };
 
-export default async function ProjectDetailPage({ params }: ProjectPageProps) {
+
+function parseOptionalNumber(formData: FormData, fieldName: string) {
+  const raw = String(formData.get(fieldName) || '').trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function parseJsonField(formData: FormData, fieldName: string) {
+  const raw = String(formData.get(fieldName) || '').trim();
+  if (!raw) return { value: undefined as unknown, error: null as string | null };
+
+  try {
+    return { value: JSON.parse(raw), error: null as string | null };
+  } catch {
+    return { value: undefined as unknown, error: `JSON inválido no campo ${fieldName}.` };
+  }
+}
+
+export default async function ProjectDetailPage({ params, searchParams }: ProjectPageProps) {
   await requireSession();
   const { id } = await params;
+  const query = await searchParams;
   const project = await getProjectById(id);
   await requireOrgRole(project.organization_id, ['admin', 'analyst', 'viewer']);
 
@@ -33,7 +73,7 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
       code: String(formData.get('code') || ''),
       clientName: String(formData.get('clientName') || ''),
       status: String(formData.get('status') || 'draft'),
-      contractValue: Number(formData.get('contractValue') || '') || undefined,
+      contractValue: parseOptionalNumber(formData, 'contractValue'),
       startDate: String(formData.get('startDate') || '') || undefined,
       endDate: String(formData.get('endDate') || '') || undefined,
       description: String(formData.get('description') || ''),
@@ -48,46 +88,70 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
       projectId: id,
       assumptionKey: String(formData.get('assumptionKey') || ''),
       assumptionLabel: String(formData.get('assumptionLabel') || ''),
-      value_numeric: Number(formData.get('valueNumeric') || '') || null,
+      value_numeric: parseOptionalNumber(formData, 'valueNumeric') ?? null,
       value_text: String(formData.get('valueText') || '') || null,
       unit: String(formData.get('unit') || '') || null,
     });
     revalidatePath(`/projects/${id}`);
   }
 
+  async function clearOverrideAction(formData: FormData) {
+    'use server';
+    await requireOrgRole(project.organization_id, ['admin', 'analyst']);
+    await deleteProjectAssumptionOverride(id, String(formData.get('assumptionKey') || ''));
+    revalidatePath(`/projects/${id}`);
+  }
+
   async function upsertCashAction(formData: FormData) {
     'use server';
     await requireOrgRole(project.organization_id, ['admin', 'analyst']);
-    await upsertProjectCashProfile({
+
+    const expectedCollectionCurve = parseJsonField(formData, 'expectedCollectionCurveJson');
+    if (expectedCollectionCurve.error) {
+      redirect(`/projects/${id}?error=${encodeURIComponent(expectedCollectionCurve.error)}`);
+    }
+
+    const input = {
       projectId: id,
       billingModel: String(formData.get('billingModel') || '') || undefined,
-      receiptCycleDays: Number(formData.get('receiptCycleDays') || '') || undefined,
-      advancePercentage: Number(formData.get('advancePercentage') || '') || undefined,
-      finalDeliveryPercentage: Number(formData.get('finalDeliveryPercentage') || '') || undefined,
-      workingCapitalBufferDays: Number(formData.get('workingCapitalBufferDays') || '') || undefined,
-      expectedCollectionCurveJson: String(formData.get('expectedCollectionCurveJson') || '')
-        ? JSON.parse(String(formData.get('expectedCollectionCurveJson')))
-        : undefined,
-    });
+      receiptCycleDays: parseOptionalNumber(formData, 'receiptCycleDays'),
+      advancePercentage: parseOptionalNumber(formData, 'advancePercentage'),
+      finalDeliveryPercentage: parseOptionalNumber(formData, 'finalDeliveryPercentage'),
+      workingCapitalBufferDays: parseOptionalNumber(formData, 'workingCapitalBufferDays'),
+      expectedCollectionCurveJson: expectedCollectionCurve.value,
+    };
+
+    await upsertProjectCashProfile(input);
+    await syncCashProfileToAssumptionOverrides(id, input);
     revalidatePath(`/projects/${id}`);
   }
 
   async function upsertDisbursementAction(formData: FormData) {
     'use server';
     await requireOrgRole(project.organization_id, ['admin', 'analyst']);
-    await upsertProjectDisbursementProfile({
+
+    const productionCostDistribution = parseJsonField(formData, 'productionCostDistributionJson');
+    if (productionCostDistribution.error) {
+      redirect(`/projects/${id}?error=${encodeURIComponent(productionCostDistribution.error)}`);
+    }
+
+    const manualSchedule = parseJsonField(formData, 'manualScheduleJson');
+    if (manualSchedule.error) {
+      redirect(`/projects/${id}?error=${encodeURIComponent(manualSchedule.error)}`);
+    }
+
+    const input = {
       projectId: id,
       disbursementModel: String(formData.get('disbursementModel') || '') || undefined,
-      supplierPaymentCycleDays: Number(formData.get('supplierPaymentCycleDays') || '') || undefined,
-      upfrontCostPercentage: Number(formData.get('upfrontCostPercentage') || '') || undefined,
-      productionCostDistributionJson: String(formData.get('productionCostDistributionJson') || '')
-        ? JSON.parse(String(formData.get('productionCostDistributionJson')))
-        : undefined,
-      manualScheduleJson: String(formData.get('manualScheduleJson') || '')
-        ? JSON.parse(String(formData.get('manualScheduleJson')))
-        : undefined,
+      supplierPaymentCycleDays: parseOptionalNumber(formData, 'supplierPaymentCycleDays'),
+      upfrontCostPercentage: parseOptionalNumber(formData, 'upfrontCostPercentage'),
+      productionCostDistributionJson: productionCostDistribution.value,
+      manualScheduleJson: manualSchedule.value,
       notes: String(formData.get('notes') || '') || undefined,
-    });
+    };
+
+    await upsertProjectDisbursementProfile(input);
+    await syncDisbursementProfileToAssumptionOverrides(id, input);
     revalidatePath(`/projects/${id}`);
   }
 
@@ -99,7 +163,7 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
       categoryName: String(formData.get('categoryName') || ''),
       categoryType: String(formData.get('categoryType') || 'other') as never,
       allocationMethod: String(formData.get('allocationMethod') || 'fixed_value') as never,
-      defaultValue: Number(formData.get('defaultValue') || '') || undefined,
+      defaultValue: parseOptionalNumber(formData, 'defaultValue'),
       active: String(formData.get('active') || 'on') === 'on',
     });
     revalidatePath(`/projects/${id}`);
@@ -112,7 +176,7 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
       categoryName: String(formData.get('categoryName') || ''),
       categoryType: String(formData.get('categoryType') || 'other') as never,
       allocationMethod: String(formData.get('allocationMethod') || 'fixed_value') as never,
-      defaultValue: Number(formData.get('defaultValue') || '') || undefined,
+      defaultValue: parseOptionalNumber(formData, 'defaultValue'),
       active: String(formData.get('active') || '') === 'on',
     });
     revalidatePath(`/projects/${id}`);
@@ -130,6 +194,8 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
         }
       />
       <div className="grid gap-4 p-6">
+        {query?.error ? <div className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">{query.error}</div> : null}
+
         <SectionCard title="A. Identificação">
           <form action={updateProjectAction} className="grid gap-2 md:grid-cols-3">
             <input name="name" defaultValue={project.name} className="rounded border px-2 py-1 text-sm" />
@@ -148,13 +214,25 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
 
         <SectionCard title="B. Camada de herança de parâmetros">
           <table className="w-full text-sm">
-            <thead><tr className="text-left"><th>Parâmetro</th><th>Valor efetivo</th><th>Origem</th></tr></thead>
+            <thead>
+              <tr className="text-left">
+                <th>Parâmetro</th>
+                <th>Valor efetivo</th>
+                <th>Origem</th>
+                <th>Global</th>
+                <th>Template</th>
+                <th>Override</th>
+              </tr>
+            </thead>
             <tbody>
               {effectiveAssumptions.map((row) => (
                 <tr key={row.assumption_key} className="border-t">
                   <td>{row.assumption_label}</td>
                   <td>{String(row.effective_value ?? '—')} {row.unit ?? ''}</td>
                   <td>{row.source_layer}</td>
+                  <td>{String(row.raw_global_value ?? '—')}</td>
+                  <td>{String(row.raw_template_value ?? '—')}</td>
+                  <td>{String(row.raw_project_override_value ?? '—')}</td>
                 </tr>
               ))}
             </tbody>
@@ -217,24 +295,31 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
               const existingOverride = overrides.find((row) => row.assumption_key === parameter.key);
 
               return (
-                <form key={parameter.key} action={upsertOverrideAction} className="grid gap-2 rounded border p-2 md:grid-cols-6">
-                  <input type="hidden" name="assumptionKey" value={parameter.key} />
-                  <input type="hidden" name="assumptionLabel" value={parameter.label} />
-                  <input type="hidden" name="unit" value={parameter.unit ?? ''} />
-                  <div className="text-sm font-medium">{parameter.label}</div>
-                  <div className="text-xs text-slate-600">Efetivo: {String(current?.effective_value ?? '—')} {current?.unit ?? ''}</div>
-                  <div className="text-xs text-slate-600">Origem: {current?.source_layer ?? 'global'}</div>
-                  <input
-                    name="valueNumeric"
-                    type="number"
-                    step="0.0001"
-                    defaultValue={existingOverride?.value_numeric ?? ''}
-                    placeholder="Override numérico"
-                    className="rounded border px-2 py-1 text-sm"
-                  />
-                  <input name="valueText" defaultValue={existingOverride?.value_text ?? ''} placeholder="Override texto" className="rounded border px-2 py-1 text-sm" />
-                  <button className="rounded bg-slate-900 px-3 py-1 text-sm text-white">Salvar override</button>
-                </form>
+                <div key={parameter.key} className="grid gap-2 rounded border p-2 md:grid-cols-7">
+                  <form action={upsertOverrideAction} className="contents">
+                    <input type="hidden" name="assumptionKey" value={parameter.key} />
+                    <input type="hidden" name="assumptionLabel" value={parameter.label} />
+                    <input type="hidden" name="unit" value={parameter.unit ?? ''} />
+                    <div className="text-sm font-medium">{parameter.label}</div>
+                    <div className="text-xs text-slate-600">Efetivo: {String(current?.effective_value ?? '—')} {current?.unit ?? ''}</div>
+                    <div className="text-xs text-slate-600">Origem: {current?.source_layer ?? 'global'}</div>
+                    <div className="text-xs text-slate-600">Override salvo: {existingOverride ? 'sim' : 'não'}</div>
+                    <input
+                      name="valueNumeric"
+                      type="number"
+                      step="0.0001"
+                      defaultValue={existingOverride?.value_numeric ?? ''}
+                      placeholder="Override numérico"
+                      className="rounded border px-2 py-1 text-sm"
+                    />
+                    <input name="valueText" defaultValue={existingOverride?.value_text ?? ''} placeholder="Override texto" className="rounded border px-2 py-1 text-sm" />
+                    <button className="rounded bg-slate-900 px-3 py-1 text-sm text-white">Salvar override</button>
+                  </form>
+                  <form action={clearOverrideAction}>
+                    <input type="hidden" name="assumptionKey" value={parameter.key} />
+                    <button className="rounded border border-slate-300 px-3 py-1 text-sm">Limpar override</button>
+                  </form>
+                </div>
               );
             })}
           </div>

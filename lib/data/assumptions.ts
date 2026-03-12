@@ -6,6 +6,10 @@ export type AssumptionValue = {
   value_json?: unknown | null;
 };
 
+function hasAssumptionValue(value: AssumptionValue) {
+  return value.value_numeric != null || value.value_text != null || value.value_json != null;
+}
+
 export const CORE_FINANCIAL_PARAMETERS = [
   { key: 'admin_rate_pct', label: 'Taxa administrativa', unit: '%' },
   { key: 'direct_cost_pct', label: 'Percentual de custo direto', unit: '%' },
@@ -19,6 +23,8 @@ export const CORE_FINANCIAL_PARAMETERS = [
   { key: 'billing_model', label: 'Modelo de faturamento', unit: null },
   { key: 'disbursement_model', label: 'Modelo de desembolso', unit: null },
 ] as const;
+
+const CORE_PARAMETER_MAP = new Map(CORE_FINANCIAL_PARAMETERS.map((parameter) => [parameter.key, parameter]));
 
 export async function listOrganizationAssumptions(organizationId: string) {
   const supabase = await createClient();
@@ -139,6 +145,11 @@ export async function upsertProjectAssumptionOverride(input: {
   assumptionLabel: string;
   unit?: string;
 } & AssumptionValue) {
+  if (!hasAssumptionValue(input)) {
+    await deleteProjectAssumptionOverride(input.projectId, input.assumptionKey);
+    return;
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.from('project_assumption_overrides').upsert(
     {
@@ -155,6 +166,91 @@ export async function upsertProjectAssumptionOverride(input: {
   );
 
   if (error) throw error;
+}
+
+export async function deleteProjectAssumptionOverride(projectId: string, assumptionKey: string) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('project_assumption_overrides')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('assumption_key', assumptionKey);
+
+  if (error) throw error;
+}
+
+export async function syncCashProfileToAssumptionOverrides(
+  projectId: string,
+  input: {
+    billingModel?: string;
+    receiptCycleDays?: number;
+    advancePercentage?: number;
+    finalDeliveryPercentage?: number;
+    workingCapitalBufferDays?: number;
+  },
+) {
+  await Promise.all([
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'billing_model',
+      assumptionLabel: CORE_PARAMETER_MAP.get('billing_model')?.label ?? 'billing_model',
+      unit: CORE_PARAMETER_MAP.get('billing_model')?.unit ?? null,
+      value_text: input.billingModel ?? null,
+    }),
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'receipt_cycle_days',
+      assumptionLabel: CORE_PARAMETER_MAP.get('receipt_cycle_days')?.label ?? 'receipt_cycle_days',
+      unit: CORE_PARAMETER_MAP.get('receipt_cycle_days')?.unit ?? null,
+      value_numeric: input.receiptCycleDays ?? null,
+    }),
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'advance_percentage',
+      assumptionLabel: CORE_PARAMETER_MAP.get('advance_percentage')?.label ?? 'advance_percentage',
+      unit: CORE_PARAMETER_MAP.get('advance_percentage')?.unit ?? null,
+      value_numeric: input.advancePercentage ?? null,
+    }),
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'final_delivery_percentage',
+      assumptionLabel: CORE_PARAMETER_MAP.get('final_delivery_percentage')?.label ?? 'final_delivery_percentage',
+      unit: CORE_PARAMETER_MAP.get('final_delivery_percentage')?.unit ?? null,
+      value_numeric: input.finalDeliveryPercentage ?? null,
+    }),
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'working_capital_buffer_days',
+      assumptionLabel: CORE_PARAMETER_MAP.get('working_capital_buffer_days')?.label ?? 'working_capital_buffer_days',
+      unit: CORE_PARAMETER_MAP.get('working_capital_buffer_days')?.unit ?? null,
+      value_numeric: input.workingCapitalBufferDays ?? null,
+    }),
+  ]);
+}
+
+export async function syncDisbursementProfileToAssumptionOverrides(
+  projectId: string,
+  input: {
+    disbursementModel?: string;
+    supplierPaymentCycleDays?: number;
+  },
+) {
+  await Promise.all([
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'disbursement_model',
+      assumptionLabel: CORE_PARAMETER_MAP.get('disbursement_model')?.label ?? 'disbursement_model',
+      unit: CORE_PARAMETER_MAP.get('disbursement_model')?.unit ?? null,
+      value_text: input.disbursementModel ?? null,
+    }),
+    upsertProjectAssumptionOverride({
+      projectId,
+      assumptionKey: 'supplier_payment_cycle_days',
+      assumptionLabel: CORE_PARAMETER_MAP.get('supplier_payment_cycle_days')?.label ?? 'supplier_payment_cycle_days',
+      unit: CORE_PARAMETER_MAP.get('supplier_payment_cycle_days')?.unit ?? null,
+      value_numeric: input.supplierPaymentCycleDays ?? null,
+    }),
+  ]);
 }
 
 export async function resolveProjectEffectiveAssumptions(projectId: string) {
