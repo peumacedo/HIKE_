@@ -31,6 +31,48 @@ type ProjectPageProps = {
   searchParams?: Promise<{ error?: string }>;
 };
 
+type EffectiveAssumptionRow = Awaited<ReturnType<typeof resolveProjectEffectiveAssumptions>>[number];
+
+function getEffectiveAssumptionByKey(rows: EffectiveAssumptionRow[], assumptionKey: string) {
+  return rows.find((row) => row.assumption_key === assumptionKey);
+}
+
+function hasOwnProfileValue(value: unknown) {
+  return value !== null && value !== undefined && value !== '';
+}
+
+function getStructuredFieldMeta(ownValue: unknown, effectiveRow?: EffectiveAssumptionRow) {
+  const hasOwnValue = hasOwnProfileValue(ownValue);
+  const hasAnyEffectiveValue =
+    effectiveRow?.raw_global_value != null ||
+    effectiveRow?.raw_template_value != null ||
+    effectiveRow?.raw_project_override_value != null;
+
+  const sourceLabel = hasAnyEffectiveValue ? effectiveRow?.source_layer ?? 'global' : 'sem definição';
+  const effectiveValue = hasAnyEffectiveValue ? effectiveRow?.effective_value ?? '—' : 'sem definição';
+
+  let statusLabel = 'sem definição';
+  if (hasOwnValue) {
+    statusLabel = 'configuração própria no perfil';
+  } else if (sourceLabel === 'project_override') {
+    statusLabel = 'override ativo no projeto';
+  } else if (hasAnyEffectiveValue) {
+    statusLabel = 'herdando';
+  }
+
+  return {
+    hasOwnValue,
+    effectiveValue,
+    sourceLabel,
+    statusLabel,
+  };
+}
+
+function getStructuredInputClass(meta: ReturnType<typeof getStructuredFieldMeta>) {
+  if (meta.hasOwnValue) return 'rounded border border-slate-400 bg-slate-50 px-2 py-1 text-sm';
+  if (meta.statusLabel === 'herdando') return 'rounded border border-sky-300 bg-sky-50 px-2 py-1 text-sm';
+  return 'rounded border px-2 py-1 text-sm';
+}
 
 function parseOptionalNumber(formData: FormData, fieldName: string) {
   const raw = String(formData.get(fieldName) || '').trim();
@@ -66,6 +108,14 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
   ]);
 
   const overrideKeys = new Set(overrides.map((row) => row.assumption_key));
+  const cashBillingModelMeta = getStructuredFieldMeta(cashProfile?.billing_model, getEffectiveAssumptionByKey(effectiveAssumptions, 'billing_model'));
+  const cashReceiptCycleMeta = getStructuredFieldMeta(cashProfile?.receipt_cycle_days, getEffectiveAssumptionByKey(effectiveAssumptions, 'receipt_cycle_days'));
+  const cashAdvanceMeta = getStructuredFieldMeta(cashProfile?.advance_percentage, getEffectiveAssumptionByKey(effectiveAssumptions, 'advance_percentage'));
+  const cashFinalDeliveryMeta = getStructuredFieldMeta(cashProfile?.final_delivery_percentage, getEffectiveAssumptionByKey(effectiveAssumptions, 'final_delivery_percentage'));
+  const cashWorkingCapitalMeta = getStructuredFieldMeta(cashProfile?.working_capital_buffer_days, getEffectiveAssumptionByKey(effectiveAssumptions, 'working_capital_buffer_days'));
+
+  const disbursementModelMeta = getStructuredFieldMeta(disbursementProfile?.disbursement_model, getEffectiveAssumptionByKey(effectiveAssumptions, 'disbursement_model'));
+  const supplierCycleMeta = getStructuredFieldMeta(disbursementProfile?.supplier_payment_cycle_days, getEffectiveAssumptionByKey(effectiveAssumptions, 'supplier_payment_cycle_days'));
 
   async function updateProjectAction(formData: FormData) {
     'use server';
@@ -253,23 +303,38 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
           <form action={upsertCashAction} className="grid gap-2 md:grid-cols-3">
             <label className="grid gap-1 text-sm text-slate-700">
               Modelo de faturamento
-              <input name="billingModel" defaultValue={cashProfile?.billing_model ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="billingModel" defaultValue={cashProfile?.billing_model ?? ''} className={getStructuredInputClass(cashBillingModelMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(cashBillingModelMeta.effectiveValue)} | Origem: {cashBillingModelMeta.sourceLabel} | Estado: {cashBillingModelMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Ciclo de recebimento (dias)
-              <input name="receiptCycleDays" type="number" defaultValue={cashProfile?.receipt_cycle_days ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="receiptCycleDays" type="number" defaultValue={cashProfile?.receipt_cycle_days ?? ''} className={getStructuredInputClass(cashReceiptCycleMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(cashReceiptCycleMeta.effectiveValue)} | Origem: {cashReceiptCycleMeta.sourceLabel} | Estado: {cashReceiptCycleMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Percentual de entrada (%)
-              <input name="advancePercentage" type="number" step="0.0001" defaultValue={cashProfile?.advance_percentage ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="advancePercentage" type="number" step="0.0001" defaultValue={cashProfile?.advance_percentage ?? ''} className={getStructuredInputClass(cashAdvanceMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(cashAdvanceMeta.effectiveValue)} | Origem: {cashAdvanceMeta.sourceLabel} | Estado: {cashAdvanceMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Percentual na entrega final (%)
-              <input name="finalDeliveryPercentage" type="number" step="0.0001" defaultValue={cashProfile?.final_delivery_percentage ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="finalDeliveryPercentage" type="number" step="0.0001" defaultValue={cashProfile?.final_delivery_percentage ?? ''} className={getStructuredInputClass(cashFinalDeliveryMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(cashFinalDeliveryMeta.effectiveValue)} | Origem: {cashFinalDeliveryMeta.sourceLabel} | Estado: {cashFinalDeliveryMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Buffer de capital de giro (dias)
-              <input name="workingCapitalBufferDays" type="number" defaultValue={cashProfile?.working_capital_buffer_days ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="workingCapitalBufferDays" type="number" defaultValue={cashProfile?.working_capital_buffer_days ?? ''} className={getStructuredInputClass(cashWorkingCapitalMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(cashWorkingCapitalMeta.effectiveValue)} | Origem: {cashWorkingCapitalMeta.sourceLabel} | Estado: {cashWorkingCapitalMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700 md:col-span-2">
               Curva esperada de recebimento (JSON opcional)
@@ -284,11 +349,17 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
           <form action={upsertDisbursementAction} className="grid gap-2 md:grid-cols-3">
             <label className="grid gap-1 text-sm text-slate-700">
               Modelo de desembolso
-              <input name="disbursementModel" defaultValue={disbursementProfile?.disbursement_model ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="disbursementModel" defaultValue={disbursementProfile?.disbursement_model ?? ''} className={getStructuredInputClass(disbursementModelMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(disbursementModelMeta.effectiveValue)} | Origem: {disbursementModelMeta.sourceLabel} | Estado: {disbursementModelMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Ciclo de pagamento a fornecedores (dias)
-              <input name="supplierPaymentCycleDays" type="number" defaultValue={disbursementProfile?.supplier_payment_cycle_days ?? ''} className="rounded border px-2 py-1 text-sm" />
+              <input name="supplierPaymentCycleDays" type="number" defaultValue={disbursementProfile?.supplier_payment_cycle_days ?? ''} className={getStructuredInputClass(supplierCycleMeta)} />
+              <div className="text-xs text-slate-500">
+                Valor atual: {String(supplierCycleMeta.effectiveValue)} | Origem: {supplierCycleMeta.sourceLabel} | Estado: {supplierCycleMeta.statusLabel}
+              </div>
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Custo antecipado (%)
