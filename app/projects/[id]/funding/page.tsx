@@ -5,6 +5,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { getProjectById } from '@/lib/data/projects';
+import { assessFundingLineEligibility, deriveExecutiveFundingRead } from '@/lib/funding/helpers';
 import {
   calculateProjectFundingNeed,
   getActiveProjectFundingSimulation,
@@ -44,8 +45,13 @@ export default async function ProjectFundingPage({ params, searchParams }: Props
   const selectedSimulation = selectedSimulationId ? await getFundingSimulationById(selectedSimulationId) : null;
 
   const selectedLineId = selectedSimulation?.simulation?.funding_line_id ?? fundingLines.find((line) => line.active)?.id ?? fundingLines[0]?.id;
-  const preview = selectedLineId ? await simulateProjectFunding(id, selectedLineId) : null;
+  const preview = !selectedSimulation && selectedLineId ? await simulateProjectFunding(id, selectedLineId) : null;
 
+  const activeRead = deriveExecutiveFundingRead({ selectedSimulation, preview });
+  const activeLine = fundingLines.find((line) => line.id === selectedLineId);
+  const activeLineEligibility = activeLine
+    ? assessFundingLineEligibility(fundingNeed.maxFundingNeed, activeLine)
+    : null;
   const latestMonth = selectedSimulation?.months.at(-1);
 
   async function runSimulationAction(formData: FormData) {
@@ -92,8 +98,8 @@ export default async function ProjectFundingPage({ params, searchParams }: Props
           <div className="grid gap-3 md:grid-cols-4 text-sm">
             <div className="rounded border p-3">Pico negativo de caixa<br /><strong>{money(fundingNeed.peakNegativeCash)}</strong></div>
             <div className="rounded border p-3">Necessidade máxima de funding<br /><strong>{money(fundingNeed.maxFundingNeed)}</strong></div>
-            <div className="rounded border p-3">Custo financeiro total (simulação ativa)<br /><strong>{money(activeSimulation?.simulation.total_funding_cost ?? 0)}</strong></div>
-            <div className="rounded border p-3">Saldo financiado final (ativa)<br /><strong>{money(activeSimulation?.months.at(-1)?.closing_funding_balance ?? 0)}</strong></div>
+            <div className="rounded border p-3">Custo financeiro total (simulação em foco)<br /><strong>{money(activeRead.totalFundingCost)}</strong></div>
+            <div className="rounded border p-3">Saldo financiado final (em foco)<br /><strong>{money(activeRead.finalFundingBalance)}</strong></div>
           </div>
         </SectionCard>
 
@@ -113,7 +119,10 @@ export default async function ProjectFundingPage({ params, searchParams }: Props
                 </tr>
               </thead>
               <tbody>
-                {fundingLines.map((line) => (
+                {fundingLines.map((line) => {
+                  const eligibility = assessFundingLineEligibility(fundingNeed.maxFundingNeed, line);
+
+                  return (
                   <tr key={line.id} className="border-t">
                     <td className="p-2">{line.name}</td>
                     <td className="p-2">{line.lender_name ?? '—'}</td>
@@ -122,9 +131,21 @@ export default async function ProjectFundingPage({ params, searchParams }: Props
                     <td className="p-2">{line.term_days ?? 0} dias</td>
                     <td className="p-2">{line.iof_tax_pct ?? line.io_f_tax_pct ?? 0}%</td>
                     <td className="p-2">{money(Number(line.minimum_amount ?? 0))} - {line.maximum_amount ? money(Number(line.maximum_amount)) : 'sem teto'}</td>
-                    <td className="p-2">{line.active ? 'ativo' : 'inativo'}</td>
+                    <td className="p-2">
+                      <div className="flex flex-wrap gap-1">
+                        <span className={`rounded px-2 py-0.5 text-xs ${eligibility.isEligible ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {eligibility.isEligible ? 'elegível' : 'inelegível'}
+                        </span>
+                        {eligibility.reasons.map((reason) => (
+                          <span key={reason} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -208,15 +229,22 @@ export default async function ProjectFundingPage({ params, searchParams }: Props
 
         <SectionCard title="E. Leitura executiva">
           <p className="text-sm text-slate-700">
-            {preview?.firstNegativeMonth
-              ? `O projeto entra em caixa negativo em ${preview.firstNegativeMonth}.`
+            {activeRead.firstNegativeMonth
+              ? `O projeto entra em caixa negativo em ${activeRead.firstNegativeMonth}.`
               : 'O fluxo projetado não entra em caixa negativo no horizonte atual.'}{' '}
-            O pico de exposição é {money(Math.abs(preview?.peakNegativeCash ?? 0))} e a necessidade máxima estimada é {money(preview?.maxFundingNeed ?? 0)}.{' '}
-            Com a linha simulada, o custo financeiro total é {money(preview?.totalFundingCost ?? 0)} (juros {money(preview?.totalInterestCost ?? 0)} + IOF {money(preview?.totalIofCost ?? 0)}),
-            levando o resultado do projeto de {money(preview?.operationalResultBeforeFunding ?? 0)} para {money(preview?.resultAfterFunding ?? 0)}.
-            {preview && preview.totalFundingCost > preview.maxFundingNeed * 0.15
-              ? ' A linha parece pesada para a estrutura de caixa do projeto.'
-              : ' A linha parece viável no contexto do fluxo atual.'}
+            O pico de exposição é {money(Math.abs(activeRead.peakNegativeCash ?? 0))} e a necessidade máxima estimada é {money(activeRead.maxFundingNeed ?? 0)}.{' '}
+            Com a linha em foco, o custo financeiro total é {money(activeRead.totalFundingCost ?? 0)} (juros {money(activeRead.totalInterestCost ?? 0)} + IOF {money(activeRead.totalIofCost ?? 0)}),
+            levando o resultado do projeto de {money(activeRead.operationalResultBeforeFunding ?? 0)} para {money(activeRead.resultAfterFunding ?? 0)}.
+            {activeLineEligibility
+              ? activeLineEligibility.isEligible
+                ? (activeRead.totalFundingCost > activeRead.maxFundingNeed * 0.15
+                  ? ' A linha cobre a necessidade, mas parece pesada para a estrutura de caixa do projeto.'
+                  : ' A linha cobre a necessidade no contexto do fluxo atual.')
+                : ` A linha analisada está inelegível nesta etapa (${activeLineEligibility.reasons.join(', ')}).`
+              : ' Não há linha selecionada para análise.'}
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Fonte da leitura: {activeRead.source === 'saved_simulation' ? 'simulação salva selecionada' : activeRead.source === 'preview' ? 'preview temporário (sem simulação salva selecionada)' : 'sem dados de simulação'}.
           </p>
           {latestMonth ? (
             <p className="mt-2 text-xs text-slate-500">Saldo financiado de fechamento na simulação selecionada: {money(Number(latestMonth.closing_funding_balance))}.</p>

@@ -29,3 +29,20 @@ A visão de funding passa a responder:
 ## Observações
 É uma base funcional intencionalmente simples para rastreabilidade.
 O próximo bloco pode evoluir com estrutura de dívida mais sofisticada.
+
+
+## Fonte de verdade da leitura executiva
+Para evitar inconsistência entre histórico salvo e estado recalculado:
+- com simulação salva selecionada, o resumo executivo usa os valores da própria simulação persistida;
+- sem simulação salva selecionada, o resumo pode usar preview temporário.
+
+Assim, a interpretação executiva acompanha a mesma base exibida na tabela mensal da simulação.
+
+## Elegibilidade básica da linha frente à necessidade
+A análise de capital de giro passa a sinalizar elegibilidade básica da linha em relação ao `max_funding_need`:
+- linha inativa;
+- teto insuficiente;
+- mínimo acima da necessidade;
+- exigência de garantia (sinalização).
+
+A simulação de linha inelegível continua permitida para leitura analítica, porém sem linguagem de recomendação implícita.

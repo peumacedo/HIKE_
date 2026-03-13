@@ -49,3 +49,23 @@ Saídas:
 - sem rolagem complexa;
 - sem otimização matemática/covenants;
 - sem integração real com funding bancário externo.
+
+
+## Coerência de leitura (simulação salva vs. preview)
+A página de funding do projeto passa a usar uma única fonte por contexto:
+- quando existe `selectedSimulation` (simulação salva selecionada), a leitura executiva usa exclusivamente os dados persistidos dessa simulação;
+- o `preview` temporário (recalculado no estado atual) só é usado quando não há simulação salva selecionada.
+
+Regra aplicada:
+- `selectedSimulation` tem prioridade total sobre `preview`.
+
+Com isso, seção D (tabela mensal) e seção E (leitura executiva) permanecem coerentes entre si, e a seção A mostra os mesmos indicadores da fonte em foco.
+
+## Elegibilidade básica de linha (etapa MVP)
+Foi adicionada uma avaliação objetiva de elegibilidade com base em `maxFundingNeed` e metadados da linha (`funding_lines`):
+1. `active === false` => inelegível (`linha inativa`);
+2. `maximum_amount` definido e `< maxFundingNeed` => inelegível (`teto insuficiente`);
+3. `minimum_amount` definido e `> maxFundingNeed` com `maxFundingNeed > 0` => inelegível (`mínimo acima da necessidade`);
+4. `requires_guarantee === true` => sinalização (`exige garantia`), sem bloqueio automático por si só.
+
+Na UI, linhas inelegíveis ainda podem ser simuladas para análise, mas ficam explicitamente marcadas como inelegíveis e não são tratadas como recomendação implícita.
