@@ -22,6 +22,11 @@ Cada linha em `project_cash_flow_items` pertence a uma camada:
 
 Essas camadas **não são misturadas** em cálculos de projetado vs realizado.
 
+Regra de integridade nesta etapa:
+- `imported_omie` é **somente leitura** na UI de `/projects/[id]/cash-flow`;
+- update/delete de `imported_omie` também são bloqueados no data layer/backend;
+- ajustes operacionais devem ser feitos com novas linhas `adjustment` (sem alterar a linha importada).
+
 ## Entidades centrais
 
 - `project_cash_flow_items`: item canônico do fluxo por projeto.
@@ -33,6 +38,7 @@ Essas camadas **não são misturadas** em cálculos de projetado vs realizado.
 - geração inicial do cronograma base por projeto;
 - regeneração controlada (preserva manual, adjustment, imported_omie e generated travado);
 - CRUD manual de linhas;
+- proteção de integridade para impedir edição/exclusão de linhas `imported_omie`;
 - agregação mensal por projeto e organização;
 - página `/projects/[id]/cash-flow` e visão global `/fluxo-caixa`.
 

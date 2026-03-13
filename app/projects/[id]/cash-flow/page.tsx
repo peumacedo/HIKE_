@@ -214,17 +214,24 @@ export default async function ProjectCashFlowPage({ params, searchParams }: Prop
           <div className="space-y-2">
             {items.map((item) => (
               <form key={item.id} action={updateItemAction} className="grid gap-2 rounded border p-2 text-xs md:grid-cols-12">
+                {item.source_layer === 'imported_omie' ? (
+                  <div className="md:col-span-12">
+                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700">
+                      Importado do Omie • somente leitura
+                    </span>
+                  </div>
+                ) : null}
                 <input type="hidden" name="id" value={item.id} />
-                <input name="description" defaultValue={item.description ?? ''} className="rounded border px-2 py-1 md:col-span-2" />
-                <select name="flowDirection" defaultValue={item.flow_direction} className="rounded border px-2 py-1"><option value="inflow">inflow</option><option value="outflow">outflow</option></select>
-                <select name="lineType" defaultValue={item.line_type} className="rounded border px-2 py-1">{lineTypes.map((type) => <option key={type}>{type}</option>)}</select>
-                <input name="categoryName" defaultValue={item.category_name ?? ''} className="rounded border px-2 py-1" />
-                <input name="competenceDate" type="date" defaultValue={item.competence_date ?? ''} className="rounded border px-2 py-1" />
-                <input name="expectedCashDate" type="date" defaultValue={item.expected_cash_date ?? ''} className="rounded border px-2 py-1" />
-                <input name="amount" type="number" step="0.01" defaultValue={item.amount} className="rounded border px-2 py-1" />
-                <label className="flex items-center gap-1"><input type="checkbox" name="isLocked" defaultChecked={item.is_locked} />travado</label>
+                <input name="description" defaultValue={item.description ?? ''} className="rounded border px-2 py-1 md:col-span-2" readOnly={item.source_layer === 'imported_omie'} disabled={item.source_layer === 'imported_omie'} />
+                <select name="flowDirection" defaultValue={item.flow_direction} className="rounded border px-2 py-1" disabled={item.source_layer === 'imported_omie'}><option value="inflow">inflow</option><option value="outflow">outflow</option></select>
+                <select name="lineType" defaultValue={item.line_type} className="rounded border px-2 py-1" disabled={item.source_layer === 'imported_omie'}>{lineTypes.map((type) => <option key={type}>{type}</option>)}</select>
+                <input name="categoryName" defaultValue={item.category_name ?? ''} className="rounded border px-2 py-1" readOnly={item.source_layer === 'imported_omie'} disabled={item.source_layer === 'imported_omie'} />
+                <input name="competenceDate" type="date" defaultValue={item.competence_date ?? ''} className="rounded border px-2 py-1" readOnly={item.source_layer === 'imported_omie'} disabled={item.source_layer === 'imported_omie'} />
+                <input name="expectedCashDate" type="date" defaultValue={item.expected_cash_date ?? ''} className="rounded border px-2 py-1" readOnly={item.source_layer === 'imported_omie'} disabled={item.source_layer === 'imported_omie'} />
+                <input name="amount" type="number" step="0.01" defaultValue={item.amount} className="rounded border px-2 py-1" readOnly={item.source_layer === 'imported_omie'} disabled={item.source_layer === 'imported_omie'} />
+                <label className="flex items-center gap-1"><input type="checkbox" name="isLocked" defaultChecked={item.is_locked} disabled={item.source_layer === 'imported_omie'} />travado</label>
                 <div className="text-[11px] text-slate-500 md:col-span-2">origem: <strong>{item.source_layer}</strong> | tipo: {item.line_type}</div>
-                <button className="rounded border px-2 py-1">Salvar</button>
+                <button className="rounded border px-2 py-1" disabled={item.source_layer === 'imported_omie'}>Salvar</button>
                 <button formAction={deleteItemAction} className="rounded border border-red-400 px-2 py-1 text-red-600" disabled={item.source_layer === 'imported_omie'}>Excluir</button>
               </form>
             ))}
