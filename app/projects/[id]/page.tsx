@@ -17,7 +17,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import {
-  CORE_FINANCIAL_PARAMETERS,
+  EXPLICIT_OVERRIDE_PARAMETERS,
   deleteProjectAssumptionOverride,
   listProjectAssumptionOverrides,
   resolveProjectEffectiveAssumptions,
@@ -64,6 +64,8 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
     getProjectDisbursementProfile(id),
     listProjectCostCategories(id),
   ]);
+
+  const overrideKeys = new Set(overrides.map((row) => row.assumption_key));
 
   async function updateProjectAction(formData: FormData) {
     'use server';
@@ -232,7 +234,14 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
                   <td>{row.source_layer}</td>
                   <td>{String(row.raw_global_value ?? '—')}</td>
                   <td>{String(row.raw_template_value ?? '—')}</td>
-                  <td>{String(row.raw_project_override_value ?? '—')}</td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <span>{String(row.raw_project_override_value ?? '—')}</span>
+                      {overrideKeys.has(row.assumption_key) ? (
+                        <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">override ativo</span>
+                      ) : null}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -240,25 +249,63 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
         </SectionCard>
 
         <SectionCard title="C. Perfil de caixa">
+          <div className="mb-2 text-xs text-slate-500">Esta seção define o comportamento de recebimento e caixa do projeto.</div>
           <form action={upsertCashAction} className="grid gap-2 md:grid-cols-3">
-            <input name="billingModel" defaultValue={cashProfile?.billing_model ?? ''} placeholder="billing_model" className="rounded border px-2 py-1 text-sm" />
-            <input name="receiptCycleDays" type="number" defaultValue={cashProfile?.receipt_cycle_days ?? ''} placeholder="receipt_cycle_days" className="rounded border px-2 py-1 text-sm" />
-            <input name="advancePercentage" type="number" step="0.0001" defaultValue={cashProfile?.advance_percentage ?? ''} placeholder="advance_percentage" className="rounded border px-2 py-1 text-sm" />
-            <input name="finalDeliveryPercentage" type="number" step="0.0001" defaultValue={cashProfile?.final_delivery_percentage ?? ''} placeholder="final_delivery_percentage" className="rounded border px-2 py-1 text-sm" />
-            <input name="workingCapitalBufferDays" type="number" defaultValue={cashProfile?.working_capital_buffer_days ?? ''} placeholder="working_capital_buffer_days" className="rounded border px-2 py-1 text-sm" />
-            <textarea name="expectedCollectionCurveJson" defaultValue={cashProfile?.expected_collection_curve_json ? JSON.stringify(cashProfile.expected_collection_curve_json) : ''} placeholder='{"curve":[...]} (json opcional)' className="rounded border px-2 py-1 text-sm" rows={2} />
+            <label className="grid gap-1 text-sm text-slate-700">
+              Modelo de faturamento
+              <input name="billingModel" defaultValue={cashProfile?.billing_model ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Ciclo de recebimento (dias)
+              <input name="receiptCycleDays" type="number" defaultValue={cashProfile?.receipt_cycle_days ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Percentual de entrada (%)
+              <input name="advancePercentage" type="number" step="0.0001" defaultValue={cashProfile?.advance_percentage ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Percentual na entrega final (%)
+              <input name="finalDeliveryPercentage" type="number" step="0.0001" defaultValue={cashProfile?.final_delivery_percentage ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Buffer de capital de giro (dias)
+              <input name="workingCapitalBufferDays" type="number" defaultValue={cashProfile?.working_capital_buffer_days ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700 md:col-span-2">
+              Curva esperada de recebimento (JSON opcional)
+              <textarea name="expectedCollectionCurveJson" defaultValue={cashProfile?.expected_collection_curve_json ? JSON.stringify(cashProfile.expected_collection_curve_json) : ''} placeholder='Ex.: {"curve":[...]}' className="rounded border px-2 py-1 text-sm" rows={2} />
+            </label>
             <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white">Salvar perfil de caixa</button>
           </form>
         </SectionCard>
 
         <SectionCard title="D. Perfil de desembolso">
+          <div className="mb-2 text-xs text-slate-500">Esta seção define o comportamento de desembolso e pagamentos do projeto.</div>
           <form action={upsertDisbursementAction} className="grid gap-2 md:grid-cols-3">
-            <input name="disbursementModel" defaultValue={disbursementProfile?.disbursement_model ?? ''} placeholder="disbursement_model" className="rounded border px-2 py-1 text-sm" />
-            <input name="supplierPaymentCycleDays" type="number" defaultValue={disbursementProfile?.supplier_payment_cycle_days ?? ''} placeholder="supplier_payment_cycle_days" className="rounded border px-2 py-1 text-sm" />
-            <input name="upfrontCostPercentage" type="number" step="0.0001" defaultValue={disbursementProfile?.upfront_cost_percentage ?? ''} placeholder="upfront_cost_percentage" className="rounded border px-2 py-1 text-sm" />
-            <textarea name="productionCostDistributionJson" defaultValue={disbursementProfile?.production_cost_distribution_json ? JSON.stringify(disbursementProfile.production_cost_distribution_json) : ''} placeholder='{"distribution":[...]} (json)' className="rounded border px-2 py-1 text-sm" rows={2} />
-            <textarea name="manualScheduleJson" defaultValue={disbursementProfile?.manual_schedule_json ? JSON.stringify(disbursementProfile.manual_schedule_json) : ''} placeholder='{"schedule":[...]} (json)' className="rounded border px-2 py-1 text-sm" rows={2} />
-            <textarea name="notes" defaultValue={disbursementProfile?.notes ?? ''} placeholder="Notas" className="rounded border px-2 py-1 text-sm" rows={2} />
+            <label className="grid gap-1 text-sm text-slate-700">
+              Modelo de desembolso
+              <input name="disbursementModel" defaultValue={disbursementProfile?.disbursement_model ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Ciclo de pagamento a fornecedores (dias)
+              <input name="supplierPaymentCycleDays" type="number" defaultValue={disbursementProfile?.supplier_payment_cycle_days ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Custo antecipado (%)
+              <input name="upfrontCostPercentage" type="number" step="0.0001" defaultValue={disbursementProfile?.upfront_cost_percentage ?? ''} className="rounded border px-2 py-1 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700 md:col-span-2">
+              Distribuição de custo de produção (JSON)
+              <textarea name="productionCostDistributionJson" defaultValue={disbursementProfile?.production_cost_distribution_json ? JSON.stringify(disbursementProfile.production_cost_distribution_json) : ''} placeholder='Ex.: {"distribution":[...]}' className="rounded border px-2 py-1 text-sm" rows={2} />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700 md:col-span-2">
+              Cronograma manual (JSON)
+              <textarea name="manualScheduleJson" defaultValue={disbursementProfile?.manual_schedule_json ? JSON.stringify(disbursementProfile.manual_schedule_json) : ''} placeholder='Ex.: {"schedule":[...]}' className="rounded border px-2 py-1 text-sm" rows={2} />
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700 md:col-span-2">
+              Observações
+              <textarea name="notes" defaultValue={disbursementProfile?.notes ?? ''} className="rounded border px-2 py-1 text-sm" rows={2} />
+            </label>
             <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white">Salvar desembolso</button>
           </form>
         </SectionCard>
@@ -288,9 +335,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
         </SectionCard>
 
         <SectionCard title="F. Overrides explícitos do projeto">
-          <div className="mb-2 text-xs text-slate-500">Se preencher override, ele vence template e global.</div>
+          <div className="mb-2 text-xs text-slate-500">Esta seção define apenas overrides financeiros não estruturados. Se preencher override, ele vence template e global.</div>
           <div className="grid gap-2">
-            {CORE_FINANCIAL_PARAMETERS.map((parameter) => {
+            {EXPLICIT_OVERRIDE_PARAMETERS.map((parameter) => {
               const current = effectiveAssumptions.find((row) => row.assumption_key === parameter.key);
               const existingOverride = overrides.find((row) => row.assumption_key === parameter.key);
 
@@ -309,10 +356,10 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
                       type="number"
                       step="0.0001"
                       defaultValue={existingOverride?.value_numeric ?? ''}
-                      placeholder="Override numérico"
+                      placeholder="Valor numérico do override"
                       className="rounded border px-2 py-1 text-sm"
                     />
-                    <input name="valueText" defaultValue={existingOverride?.value_text ?? ''} placeholder="Override texto" className="rounded border px-2 py-1 text-sm" />
+                    <input name="valueText" defaultValue={existingOverride?.value_text ?? ''} placeholder="Valor textual do override" className="rounded border px-2 py-1 text-sm" />
                     <button className="rounded bg-slate-900 px-3 py-1 text-sm text-white">Salvar override</button>
                   </form>
                   <form action={clearOverrideAction}>

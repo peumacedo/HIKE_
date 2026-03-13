@@ -24,6 +24,10 @@ export const CORE_FINANCIAL_PARAMETERS = [
   { key: 'disbursement_model', label: 'Modelo de desembolso', unit: null },
 ] as const;
 
+export const EXPLICIT_OVERRIDE_PARAMETERS = CORE_FINANCIAL_PARAMETERS.filter((parameter) =>
+  ['admin_rate_pct', 'direct_cost_pct', 'payroll_weight_pct', 'contingency_pct'].includes(parameter.key),
+);
+
 const CORE_PARAMETER_MAP = new Map(CORE_FINANCIAL_PARAMETERS.map((parameter) => [parameter.key, parameter]));
 
 export async function listOrganizationAssumptions(organizationId: string) {
