@@ -23,6 +23,18 @@ Os perfis estruturados continuam existindo para UX e modelagem operacional:
 
 Mas ao salvar esses formulários, os campos equivalentes são **sincronizados automaticamente** para `project_assumption_overrides`, evitando dupla fonte de verdade.
 
+## Diferença entre valor próprio do profile e valor efetivo
+Na tela `/projects/[id]`, as seções **C. Perfil de caixa** e **D. Perfil de desembolso** passaram a separar de forma explícita:
+
+- **Valor próprio do profile**: é o valor persistido em `project_cash_profiles` ou `project_disbursement_profiles` e usado como conteúdo editável do input.
+- **Valor efetivo**: é o valor resolvido pela hierarquia canônica (global -> template -> project_override), exibido como informação auxiliar ao lado do campo.
+
+Com isso, quando um campo estruturado está herdando valor:
+- o input pode permanecer vazio;
+- a UI exibe “valor atual”, “origem” e estado (“herdando”, “override ativo no projeto”, “configuração própria no perfil” ou “sem definição”).
+
+Importante: a UI **não preenche automaticamente o input com valor herdado**. Isso evita transformar herança em persistência indevida quando o usuário salva o formulário sem alterações.
+
 ## Mapeamento de sincronização
 ### Perfil de caixa -> overrides canônicos
 - `billing_model`
