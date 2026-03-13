@@ -92,8 +92,8 @@ export async function listFundingLines(organizationId: string) {
   return listFundingLinesForOrganization(organizationId);
 }
 
-export async function calculateProjectFundingNeed(projectId: string): Promise<FundingNeedResult> {
-  const monthly = await aggregateProjectCashFlowByMonth(projectId);
+export async function calculateProjectFundingNeed(projectId: string, scenarioId?: string | null): Promise<FundingNeedResult> {
+  const monthly = await aggregateProjectCashFlowByMonth(projectId, scenarioId);
 
   let cumulativeCash = 0;
   let peakNegativeCash = 0;
@@ -137,12 +137,12 @@ export async function simulateProjectFunding(
     overrideGraceMonths?: number;
     overrideTermMonths?: number;
     simulationName?: string;
-    scenarioId?: string;
+    scenarioId?: string | null;
   },
 ): Promise<FundingSimulationResult> {
   const supabase = await createClient();
   const [fundingNeed, { data: fundingLine, error: fundingLineError }] = await Promise.all([
-    calculateProjectFundingNeed(projectId),
+    calculateProjectFundingNeed(projectId, options?.scenarioId),
     supabase
       .from('funding_lines')
       .select('id, name, rate_type, rate_value, grace_days, term_days, io_f_tax_pct, iof_tax_pct')
@@ -272,6 +272,7 @@ export async function saveProjectFundingSimulation(input: {
     simulation_id: simulation.id,
     organization_id: project.organization_id,
     project_id: input.projectId,
+    scenario_id: input.scenarioId ?? null,
     month_ref: monthToDate(month.monthRef),
     projected_net_cash: month.projectedNetCash,
     projected_cumulative_cash: month.projectedCumulativeCash,
@@ -295,13 +296,32 @@ export async function saveProjectFundingSimulation(input: {
   return simulation;
 }
 
-export async function listProjectFundingSimulations(projectId: string) {
+export async function listScenarioFundingSimulations(projectId: string, scenarioId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('project_funding_simulations')
     .select('id, simulation_name, status, peak_negative_cash, max_funding_need, total_interest_cost, total_iof_cost, total_funding_cost, funding_line_id, created_at, funding_lines(name, lender_name)')
     .eq('project_id', projectId)
+    .eq('scenario_id', scenarioId)
     .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listProjectFundingSimulations(projectId: string, scenarioId?: string | null) {
+  const supabase = await createClient();
+  let query = supabase
+    .from('project_funding_simulations')
+    .select('id, simulation_name, status, peak_negative_cash, max_funding_need, total_interest_cost, total_iof_cost, total_funding_cost, funding_line_id, created_at, funding_lines(name, lender_name)')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (scenarioId !== undefined) {
+    query = scenarioId === null ? query.is('scenario_id', null) : query.eq('scenario_id', scenarioId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data ?? [];

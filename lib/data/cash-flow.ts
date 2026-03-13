@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { resolveProjectEffectiveAssumptions } from '@/lib/data/assumptions';
+import { resolveScenarioEffectiveAssumptions } from '@/lib/data/assumptions';
 import { getProjectById, getProjectCashProfile, getProjectDisbursementProfile } from '@/lib/data/projects';
 
 export type CashFlowSourceLayer = 'generated' | 'manual' | 'imported_omie' | 'adjustment';
@@ -77,14 +77,15 @@ function distributeAmount(total: number, months: Date[], weights?: number[] | nu
   });
 }
 
-async function resolveEffectiveMap(projectId: string) {
-  const rows = await resolveProjectEffectiveAssumptions(projectId);
+async function resolveEffectiveMap(projectId: string, scenarioId?: string | null) {
+  const rows = await resolveScenarioEffectiveAssumptions(projectId, scenarioId);
   return new Map(rows.map((row) => [row.assumption_key, row.effective_value]));
 }
 
 export async function listProjectCashFlowItems(
   projectId: string,
   filters?: {
+    scenarioId?: string | null;
     fromDate?: string;
     toDate?: string;
     flowDirection?: CashFlowDirection;
@@ -102,6 +103,9 @@ export async function listProjectCashFlowItems(
     .order('created_at', { ascending: true });
 
   if (filters?.fromDate) query = query.gte('expected_cash_date', filters.fromDate);
+  if (filters?.scenarioId !== undefined) {
+    query = filters.scenarioId === null ? query.is('scenario_id', null) : query.eq('scenario_id', filters.scenarioId);
+  }
   if (filters?.toDate) query = query.lte('expected_cash_date', filters.toDate);
   if (filters?.flowDirection) query = query.eq('flow_direction', filters.flowDirection);
   if (filters?.lineType) query = query.eq('line_type', filters.lineType);
@@ -211,12 +215,15 @@ export async function deleteProjectCashFlowItem(itemId: string) {
   if (error) throw error;
 }
 
-export async function generateBaseProjectCashFlow(projectId: string, options?: { regenerate?: boolean; createdBy?: string }) {
+export async function generateBaseProjectCashFlow(
+  projectId: string,
+  options?: { regenerate?: boolean; createdBy?: string; scenarioId?: string | null },
+) {
   const [project, cashProfile, disbursementProfile, effectiveMap] = await Promise.all([
     getProjectById(projectId),
     getProjectCashProfile(projectId),
     getProjectDisbursementProfile(projectId),
-    resolveEffectiveMap(projectId),
+    resolveEffectiveMap(projectId, options?.scenarioId),
   ]);
 
   if (!project.contract_value || !project.start_date || !project.end_date) {
@@ -229,6 +236,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
     .insert({
       organization_id: project.organization_id,
       project_id: project.id,
+      scenario_id: options?.scenarioId ?? null,
       generation_type: options?.regenerate ? 'regenerate_schedule' : 'base_schedule',
       status: 'running',
       created_by: options?.createdBy ?? null,
@@ -244,6 +252,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
         .from('project_cash_flow_items')
         .delete()
         .eq('project_id', project.id)
+        .is('scenario_id', options?.scenarioId ?? null)
         .eq('source_layer', 'generated')
         .eq('is_locked', false);
       if (cleanupError) throw cleanupError;
@@ -274,6 +283,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
         organization_id: project.organization_id,
         project_id: project.id,
         source_layer: 'generated',
+        scenario_id: options?.scenarioId ?? null,
         flow_direction: 'inflow',
         line_type: 'revenue',
         description: 'Entrada inicial do contrato',
@@ -297,6 +307,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
         organization_id: project.organization_id,
         project_id: project.id,
         source_layer: 'generated',
+        scenario_id: options?.scenarioId ?? null,
         flow_direction: 'inflow',
         line_type: 'revenue',
         description: 'Receita na entrega final',
@@ -323,6 +334,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
           organization_id: project.organization_id,
           project_id: project.id,
           source_layer: 'generated',
+          scenario_id: options?.scenarioId ?? null,
           flow_direction: 'inflow',
           line_type: 'revenue',
           description: 'Receita residual distribuída',
@@ -350,6 +362,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
         organization_id: project.organization_id,
         project_id: project.id,
         source_layer: 'generated',
+        scenario_id: options?.scenarioId ?? null,
         flow_direction: 'outflow',
         line_type: 'direct_cost',
         description: 'Custo direto upfront',
@@ -374,6 +387,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
           organization_id: project.organization_id,
           project_id: project.id,
           source_layer: 'generated',
+          scenario_id: options?.scenarioId ?? null,
           flow_direction: 'outflow',
           line_type: 'direct_cost',
           description: 'Custo direto distribuído',
@@ -405,6 +419,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
           organization_id: project.organization_id,
           project_id: project.id,
           source_layer: 'generated',
+          scenario_id: options?.scenarioId ?? null,
           flow_direction: 'outflow',
           line_type: typeDef.lineType,
           description: typeDef.description,
@@ -434,6 +449,7 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
       inflow_items: inflowItems.length,
       outflow_items: outflowItems.length,
       regenerate: Boolean(options?.regenerate),
+      scenario_id: options?.scenarioId ?? null,
     };
 
     await supabase
@@ -451,8 +467,12 @@ export async function generateBaseProjectCashFlow(projectId: string, options?: {
   }
 }
 
-export async function aggregateProjectCashFlowByMonth(projectId: string) {
-  const items = await listProjectCashFlowItems(projectId);
+export async function generateScenarioCashFlow(projectId: string, scenarioId: string, options?: { regenerate?: boolean; createdBy?: string }) {
+  return generateBaseProjectCashFlow(projectId, { ...options, scenarioId });
+}
+
+export async function aggregateProjectCashFlowByMonth(projectId: string, scenarioId?: string | null) {
+  const items = await listProjectCashFlowItems(projectId, { scenarioId: scenarioId === undefined ? null : scenarioId });
   const months = new Map<
     string,
     {

@@ -24,6 +24,17 @@ export const CORE_FINANCIAL_PARAMETERS = [
   { key: 'disbursement_model', label: 'Modelo de desembolso', unit: null },
 ] as const;
 
+export const SCENARIO_DRIVER_KEYS = [
+  'admin_rate_pct',
+  'direct_cost_pct',
+  'payroll_weight_pct',
+  'contingency_pct',
+  'receipt_cycle_days',
+  'advance_percentage',
+  'final_delivery_percentage',
+  'supplier_payment_cycle_days',
+] as const;
+
 export const EXPLICIT_OVERRIDE_PARAMETERS = CORE_FINANCIAL_PARAMETERS.filter((parameter) =>
   ['admin_rate_pct', 'direct_cost_pct', 'payroll_weight_pct', 'contingency_pct'].includes(parameter.key),
 );
@@ -183,6 +194,55 @@ export async function deleteProjectAssumptionOverride(projectId: string, assumpt
   if (error) throw error;
 }
 
+export async function listScenarioOverrides(scenarioId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('scenario_assumption_overrides')
+    .select('*')
+    .eq('scenario_id', scenarioId)
+    .order('assumption_label');
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function upsertScenarioOverride(input: {
+  organizationId: string;
+  scenarioId: string;
+  assumptionKey: string;
+  assumptionLabel: string;
+  unit?: string;
+} & AssumptionValue) {
+  if (!hasAssumptionValue(input)) {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from('scenario_assumption_overrides')
+      .delete()
+      .eq('scenario_id', input.scenarioId)
+      .eq('assumption_key', input.assumptionKey);
+
+    if (error) throw error;
+    return;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from('scenario_assumption_overrides').upsert(
+    {
+      organization_id: input.organizationId,
+      scenario_id: input.scenarioId,
+      assumption_key: input.assumptionKey,
+      assumption_label: input.assumptionLabel,
+      value_numeric: input.value_numeric ?? null,
+      value_text: input.value_text ?? null,
+      value_json: input.value_json ?? null,
+      unit: input.unit ?? null,
+    },
+    { onConflict: 'scenario_id,assumption_key' },
+  );
+
+  if (error) throw error;
+}
+
 export async function syncCashProfileToAssumptionOverrides(
   projectId: string,
   input: {
@@ -258,6 +318,10 @@ export async function syncDisbursementProfileToAssumptionOverrides(
 }
 
 export async function resolveProjectEffectiveAssumptions(projectId: string) {
+  return resolveScenarioEffectiveAssumptions(projectId);
+}
+
+export async function resolveScenarioEffectiveAssumptions(projectId: string, scenarioId?: string | null) {
   const supabase = await createClient();
 
   const { data: project, error: projectError } = await supabase
@@ -268,56 +332,82 @@ export async function resolveProjectEffectiveAssumptions(projectId: string) {
 
   if (projectError) throw projectError;
 
-  const [globalRes, templateRes, projectRes] = await Promise.all([
+  const [globalRes, templateRes, projectRes, scenarioRes] = await Promise.all([
     supabase.from('organization_assumptions').select('*').eq('organization_id', project.organization_id),
     project.template_id
       ? supabase.from('template_assumption_defaults').select('*').eq('template_id', project.template_id)
       : Promise.resolve({ data: [], error: null }),
     supabase.from('project_assumption_overrides').select('*').eq('project_id', projectId),
+    scenarioId
+      ? supabase.from('scenario_assumption_overrides').select('*').eq('scenario_id', scenarioId)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (globalRes.error) throw globalRes.error;
   if (templateRes.error) throw templateRes.error;
   if (projectRes.error) throw projectRes.error;
+  if (scenarioRes.error) throw scenarioRes.error;
 
   const globalRows = globalRes.data ?? [];
   const templateRows = templateRes.data ?? [];
   const projectRows = projectRes.data ?? [];
+  const scenarioRows = scenarioRes.data ?? [];
 
   const keys = new Set<string>([
     ...CORE_FINANCIAL_PARAMETERS.map((p) => p.key),
     ...globalRows.map((row) => row.assumption_key),
     ...templateRows.map((row) => row.assumption_key),
     ...projectRows.map((row) => row.assumption_key),
+    ...scenarioRows.map((row) => row.assumption_key),
   ]);
 
   const globalMap = new Map(globalRows.map((row) => [row.assumption_key, row]));
   const templateMap = new Map(templateRows.map((row) => [row.assumption_key, row]));
   const projectMap = new Map(projectRows.map((row) => [row.assumption_key, row]));
+  const scenarioMap = new Map(scenarioRows.map((row) => [row.assumption_key, row]));
 
   return Array.from(keys).map((key) => {
     const global = globalMap.get(key);
     const template = templateMap.get(key);
-    const override = projectMap.get(key);
+    const projectOverride = projectMap.get(key);
+    const scenarioOverride = scenarioMap.get(key);
 
-    const sourceLayer = override ? 'project_override' : template ? 'template' : 'global';
-    const chosen = override ?? template ?? global;
+    const sourceLayer = scenarioOverride
+      ? 'scenario_override'
+      : projectOverride
+        ? 'project_override'
+        : template
+          ? 'template'
+          : 'global';
+    const chosen = scenarioOverride ?? projectOverride ?? template ?? global;
     const effectiveValue = chosen?.value_numeric ?? chosen?.value_text ?? chosen?.value_json ?? null;
 
     return {
       assumption_key: key,
       assumption_label:
-        override?.assumption_label ??
+        scenarioOverride?.assumption_label ??
+        projectOverride?.assumption_label ??
         template?.assumption_label ??
         global?.assumption_label ??
         CORE_FINANCIAL_PARAMETERS.find((p) => p.key === key)?.label ??
         key,
       effective_value: effectiveValue,
-      unit: override?.unit ?? template?.unit ?? global?.unit ?? CORE_FINANCIAL_PARAMETERS.find((p) => p.key === key)?.unit ?? null,
+      unit:
+        scenarioOverride?.unit ??
+        projectOverride?.unit ??
+        template?.unit ??
+        global?.unit ??
+        CORE_FINANCIAL_PARAMETERS.find((p) => p.key === key)?.unit ??
+        null,
       source_layer: sourceLayer,
       raw_global_value: global ? global.value_numeric ?? global.value_text ?? global.value_json ?? null : null,
       raw_template_value: template ? template.value_numeric ?? template.value_text ?? template.value_json ?? null : null,
-      raw_project_override_value: override ? override.value_numeric ?? override.value_text ?? override.value_json ?? null : null,
+      raw_project_override_value: projectOverride
+        ? projectOverride.value_numeric ?? projectOverride.value_text ?? projectOverride.value_json ?? null
+        : null,
+      raw_scenario_override_value: scenarioOverride
+        ? scenarioOverride.value_numeric ?? scenarioOverride.value_text ?? scenarioOverride.value_json ?? null
+        : null,
     };
   });
 }
