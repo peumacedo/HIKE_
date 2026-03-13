@@ -249,6 +249,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
             <Link href={`/projects/${id}/funding`} className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white">
               Funding
             </Link>
+            <Link href={`/projects/${id}/scenarios`} className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white">
+              Cenários
+            </Link>
             <Link href="/projects" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800">
               Voltar
             </Link>
