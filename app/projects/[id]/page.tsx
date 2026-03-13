@@ -16,6 +16,7 @@ import { requireOrgRole, requireSession } from '@/lib/auth/helpers';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
+import { getActiveProjectFundingSimulation } from '@/lib/data/funding';
 import {
   EXPLICIT_OVERRIDE_PARAMETERS,
   deleteProjectAssumptionOverride,
@@ -99,12 +100,13 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
   const project = await getProjectById(id);
   await requireOrgRole(project.organization_id, ['admin', 'analyst', 'viewer']);
 
-  const [effectiveAssumptions, overrides, cashProfile, disbursementProfile, categories] = await Promise.all([
+  const [effectiveAssumptions, overrides, cashProfile, disbursementProfile, categories, activeFundingSimulation] = await Promise.all([
     resolveProjectEffectiveAssumptions(id),
     listProjectAssumptionOverrides(id),
     getProjectCashProfile(id),
     getProjectDisbursementProfile(id),
     listProjectCostCategories(id),
+    getActiveProjectFundingSimulation(id),
   ]);
 
   const overrideKeys = new Set(overrides.map((row) => row.assumption_key));
@@ -244,6 +246,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
             <Link href={`/projects/${id}/cash-flow`} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">
               Fluxo de caixa
             </Link>
+            <Link href={`/projects/${id}/funding`} className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white">
+              Funding
+            </Link>
             <Link href="/projects" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800">
               Voltar
             </Link>
@@ -252,6 +257,14 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
       />
       <div className="grid gap-4 p-6">
         {query?.error ? <div className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">{query.error}</div> : null}
+
+        <SectionCard title="Funding (visão rápida)">
+          <div className="grid gap-3 md:grid-cols-3 text-sm">
+            <div className="rounded border p-3">Simulação ativa<br /><strong>{activeFundingSimulation?.simulation.simulation_name ?? 'Nenhuma'}</strong></div>
+            <div className="rounded border p-3">Exposição máxima<br /><strong>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.abs(Number(activeFundingSimulation?.simulation.peak_negative_cash ?? 0)))}</strong></div>
+            <div className="rounded border p-3">Custo financeiro projetado<br /><strong>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(activeFundingSimulation?.simulation.total_funding_cost ?? 0))}</strong></div>
+          </div>
+        </SectionCard>
 
         <SectionCard title="A. Identificação">
           <form action={updateProjectAction} className="grid gap-2 md:grid-cols-3">
