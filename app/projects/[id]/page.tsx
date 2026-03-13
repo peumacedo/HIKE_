@@ -240,9 +240,14 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
         title={`Projeto ${project.code}`}
         description={project.name}
         actions={
-          <Link href="/projects" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800">
-            Voltar
-          </Link>
+          <div className="flex gap-2">
+            <Link href={`/projects/${id}/cash-flow`} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">
+              Fluxo de caixa
+            </Link>
+            <Link href="/projects" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800">
+              Voltar
+            </Link>
+          </div>
         }
       />
       <div className="grid gap-4 p-6">
