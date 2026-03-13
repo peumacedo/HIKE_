@@ -13,7 +13,10 @@ Sem esses campos, o serviço retorna erro claro.
 
 ## Resolução de parâmetros
 
-A geração usa hierarquia já existente (global/template/project override) e perfis de projeto para:
+A geração resolve parâmetros via hierarquia já existente (global/template/project override) e perfis de projeto.
+
+### Parâmetros que já influenciam a geração base
+
 - `admin_rate_pct`
 - `direct_cost_pct`
 - `payroll_weight_pct`
@@ -22,14 +25,17 @@ A geração usa hierarquia já existente (global/template/project override) e pe
 - `advance_percentage`
 - `final_delivery_percentage`
 - `supplier_payment_cycle_days`
+- `expected_collection_curve_json`
+- `production_cost_distribution_json`
+- `upfront_cost_percentage`
+
+### Parâmetros já modelados/resolvidos, mas que ainda **não** dirigem a geração base nesta etapa
+
 - `working_capital_buffer_days`
 - `billing_model`
 - `disbursement_model`
 
-Também utiliza:
-- `expected_collection_curve_json`
-- `production_cost_distribution_json`
-- `upfront_cost_percentage`
+> Observação: `working_capital_buffer_days`, `billing_model` e `disbursement_model` permanecem preparados na modelagem para os próximos blocos, sem uso artificial no gerador base atual.
 
 ## Regras de inflow
 

@@ -167,6 +167,17 @@ export async function updateProjectCashFlowItem(
   },
 ) {
   const supabase = await createClient();
+  const { data: existingItem, error: existingItemError } = await supabase
+    .from('project_cash_flow_items')
+    .select('id, source_layer')
+    .eq('id', itemId)
+    .single();
+
+  if (existingItemError) throw existingItemError;
+  if (existingItem?.source_layer === 'imported_omie') {
+    throw new Error('Linhas importadas do Omie são somente leitura e não podem ser atualizadas.');
+  }
+
   const payload: Record<string, unknown> = {};
   if (input.flowDirection) payload.flow_direction = input.flowDirection;
   if (input.lineType) payload.line_type = input.lineType;
@@ -185,6 +196,17 @@ export async function updateProjectCashFlowItem(
 
 export async function deleteProjectCashFlowItem(itemId: string) {
   const supabase = await createClient();
+  const { data: existingItem, error: existingItemError } = await supabase
+    .from('project_cash_flow_items')
+    .select('id, source_layer')
+    .eq('id', itemId)
+    .single();
+
+  if (existingItemError) throw existingItemError;
+  if (existingItem?.source_layer === 'imported_omie') {
+    throw new Error('Linhas importadas do Omie são somente leitura e não podem ser removidas.');
+  }
+
   const { error } = await supabase.from('project_cash_flow_items').delete().eq('id', itemId);
   if (error) throw error;
 }
