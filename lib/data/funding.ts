@@ -2,6 +2,26 @@ import { aggregateProjectCashFlowByMonth } from '@/lib/data/cash-flow';
 import { getProjectById } from '@/lib/data/projects';
 import { createClient } from '@/lib/supabase/server';
 
+
+
+export type MonthlyProjectionRow = {
+  month: string;
+  projected_inflows: number;
+  projected_outflows: number;
+  projected_net: number;
+};
+
+export type FundingLineForSimulation = {
+  id: string;
+  name: string;
+  rate_type: string;
+  rate_value: number;
+  grace_days: number | null;
+  term_days: number | null;
+  io_f_tax_pct: number | null;
+  iof_tax_pct: number | null;
+};
+
 export type FundingNeedMonth = {
   monthRef: string;
   projectedInflows: number;
@@ -92,9 +112,9 @@ export async function listFundingLines(organizationId: string) {
   return listFundingLinesForOrganization(organizationId);
 }
 
-export async function calculateProjectFundingNeed(projectId: string, scenarioId?: string | null): Promise<FundingNeedResult> {
-  const monthly = await aggregateProjectCashFlowByMonth(projectId, scenarioId);
 
+
+export function calculateFundingNeedFromMonthlyProjection(projectId: string, monthly: MonthlyProjectionRow[]): FundingNeedResult {
   let cumulativeCash = 0;
   let peakNegativeCash = 0;
   let firstNegativeMonth: string | null = null;
@@ -130,27 +150,13 @@ export async function calculateProjectFundingNeed(projectId: string, scenarioId?
   };
 }
 
-export async function simulateProjectFunding(
+export function simulateFundingFromMonthlyProjection(
   projectId: string,
-  fundingLineId: string,
-  options?: {
-    overrideGraceMonths?: number;
-    overrideTermMonths?: number;
-    simulationName?: string;
-    scenarioId?: string | null;
-  },
-): Promise<FundingSimulationResult> {
-  const supabase = await createClient();
-  const [fundingNeed, { data: fundingLine, error: fundingLineError }] = await Promise.all([
-    calculateProjectFundingNeed(projectId, options?.scenarioId),
-    supabase
-      .from('funding_lines')
-      .select('id, name, rate_type, rate_value, grace_days, term_days, io_f_tax_pct, iof_tax_pct')
-      .eq('id', fundingLineId)
-      .single(),
-  ]);
-
-  if (fundingLineError) throw fundingLineError;
+  fundingLine: FundingLineForSimulation,
+  monthly: MonthlyProjectionRow[],
+  options?: { overrideGraceMonths?: number; overrideTermMonths?: number },
+): FundingSimulationResult {
+  const fundingNeed = calculateFundingNeedFromMonthlyProjection(projectId, monthly);
 
   const monthlyRatePct = toMonthlyRate(String(fundingLine.rate_type), Number(fundingLine.rate_value));
   const graceMonths = options?.overrideGraceMonths ?? daysToMonths(fundingLine.grace_days);
@@ -213,7 +219,7 @@ export async function simulateProjectFunding(
 
   return {
     projectId,
-    fundingLineId,
+    fundingLineId: fundingLine.id,
     fundingLineName: fundingLine.name,
     rateType: fundingLine.rate_type,
     monthlyRatePct: round2(monthlyRatePct),
@@ -231,6 +237,44 @@ export async function simulateProjectFunding(
     firstNegativeMonth: fundingNeed.firstNegativeMonth,
     monthlySeries,
   };
+}
+
+export async function calculateProjectFundingNeed(projectId: string, scenarioId?: string | null): Promise<FundingNeedResult> {
+  const monthly = await aggregateProjectCashFlowByMonth(projectId, scenarioId);
+  return calculateFundingNeedFromMonthlyProjection(projectId, monthly);
+}
+
+export async function getFundingLineById(fundingLineId: string): Promise<FundingLineForSimulation> {
+  const supabase = await createClient();
+  const { data: fundingLine, error } = await supabase
+    .from('funding_lines')
+    .select('id, name, rate_type, rate_value, grace_days, term_days, io_f_tax_pct, iof_tax_pct')
+    .eq('id', fundingLineId)
+    .single();
+
+  if (error) throw error;
+  return fundingLine;
+}
+
+export async function simulateProjectFunding(
+  projectId: string,
+  fundingLineId: string,
+  options?: {
+    overrideGraceMonths?: number;
+    overrideTermMonths?: number;
+    simulationName?: string;
+    scenarioId?: string | null;
+  },
+): Promise<FundingSimulationResult> {
+  const [monthly, fundingLine] = await Promise.all([
+    aggregateProjectCashFlowByMonth(projectId, options?.scenarioId),
+    getFundingLineById(fundingLineId),
+  ]);
+
+  return simulateFundingFromMonthlyProjection(projectId, fundingLine, monthly, {
+    overrideGraceMonths: options?.overrideGraceMonths,
+    overrideTermMonths: options?.overrideTermMonths,
+  });
 }
 
 export async function saveProjectFundingSimulation(input: {

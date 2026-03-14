@@ -20,19 +20,26 @@ A função `resolveScenarioEffectiveAssumptions(projectId, scenarioId?)` retorna
 - `raw_project_override_value`
 - `raw_scenario_override_value`
 
+Para análises sandbox, `resolveScenarioEffectiveAssumptionsWithTransientOverrides(projectId, scenarioId, transientOverrides)` aplica overrides **temporários em memória** e marca `source_layer = scenario_transient_override`, sem escrever em banco.
+
 ## Fluxo por cenário
 - Fluxo base é persistido com `scenario_id = null`.
 - Fluxo de cenário persiste com `scenario_id = <id>`.
-- A geração usa o mesmo pipeline e permite regeneração isolada por cenário.
-- Agregações mensais aceitam filtro por cenário (`null` para base).
+- A geração persistida usa o mesmo pipeline e permite regeneração isolada por cenário.
+- Agregações mensais persistidas aceitam filtro por cenário (`null` para base).
 
-## Funding por cenário
-- `calculateProjectFundingNeed(projectId, scenarioId?)`.
-- `simulateProjectFunding(projectId, fundingLineId, { scenarioId })`.
-- `project_funding_simulations` e `project_funding_simulation_months` passam a carregar `scenario_id` para rastreabilidade.
+## Funding por cenário e seleção explícita
+Na página `/projects/[id]/scenarios`, a funding line usada para análise passou a ser **explícita** via `fundingLineId` (query string/form GET).
 
-## Limitações atuais
-- Sem Monte Carlo.
-- Sem otimização probabilística.
-- Sem árvore de decisão.
-- Um cenário por vez no pipeline (sem linhas combinadas probabilísticas).
+- Sem `fundingLineId`: o comparativo executivo mostra métricas operacionais e funding need; custo financeiro fica como **“Não simulado”**.
+- Com `fundingLineId`: comparativo e sensibilidade simulam custo financeiro com a linha escolhida.
+
+Não existe mais seleção silenciosa por “primeira linha ativa/primeira disponível”.
+
+## Persistido x temporário
+Persistido:
+- `scenario_assumption_overrides` quando o usuário salva override de cenário.
+- `project_cash_flow_items` quando o usuário gera/regenera fluxo persistido.
+
+Temporário (sandbox):
+- Sensibilidade: resolução de assumptions, projeção mensal, funding need e simulação de funding são calculadas em memória e retornadas apenas na resposta.

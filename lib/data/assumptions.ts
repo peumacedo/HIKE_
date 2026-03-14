@@ -411,3 +411,30 @@ export async function resolveScenarioEffectiveAssumptions(projectId: string, sce
     };
   });
 }
+
+export async function resolveScenarioEffectiveAssumptionsWithTransientOverrides(
+  projectId: string,
+  scenarioId: string,
+  transientOverrides: Array<{ assumptionKey: string; valueNumeric?: number | null; valueText?: string | null; valueJson?: unknown | null }>,
+) {
+  const effective = await resolveScenarioEffectiveAssumptions(projectId, scenarioId);
+  const transientMap = new Map(
+    transientOverrides.map((override) => [
+      override.assumptionKey,
+      {
+        value: override.valueNumeric ?? override.valueText ?? override.valueJson ?? null,
+      },
+    ]),
+  );
+
+  return effective.map((row) => {
+    const transient = transientMap.get(row.assumption_key);
+    if (!transient) return row;
+    return {
+      ...row,
+      effective_value: transient.value,
+      source_layer: 'scenario_transient_override',
+      raw_scenario_override_value: transient.value,
+    };
+  });
+}

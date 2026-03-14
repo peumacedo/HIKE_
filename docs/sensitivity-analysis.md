@@ -10,22 +10,30 @@ Drivers variáveis no MVP:
 - `contingency_pct` (+5 p.p.)
 - `advance_percentage` (-10 p.p.)
 
-## Método
+## Novo método (sandbox, sem mutação persistida)
 Para cada variação:
-1. aplica override temporário em `scenario_assumption_overrides`
-2. regenera fluxo do cenário
-3. recalcula funding need
-4. simula custo financeiro (com a linha de funding selecionada)
-5. registra resultado
-6. restaura override original
+1. parte da base do cenário selecionado (`resolveScenarioEffectiveAssumptions`)
+2. aplica override temporário em memória (`resolveScenarioEffectiveAssumptionsWithTransientOverrides`)
+3. gera projeção mensal em memória (`buildCashFlowProjectionFromResolvedAssumptions`)
+4. recalcula funding need em memória (`calculateFundingNeedFromMonthlyProjection`)
+5. se houver funding line selecionada, simula custo financeiro em memória (`simulateFundingFromMonthlyProjection`)
+6. registra resultado apenas no payload retornado da análise
 
-Ao final, regenera o cenário com a configuração original.
+## Garantias de integridade
+A sensibilidade **não**:
+- grava em `scenario_assumption_overrides`
+- regenera `project_cash_flow_items` persistidos
+- altera o estado real do cenário
+
+## Funding line na sensibilidade
+- A linha usada é explícita via `fundingLineId` da página de cenários.
+- Sem funding line selecionada, a sensibilidade permanece útil para métricas operacionais e funding need, mas custo financeiro fica **“Não simulado”**.
 
 ## Métricas reportadas
 - resultado operacional
 - pico negativo de caixa
 - necessidade máxima de funding
-- custo financeiro total
+- custo financeiro total (quando houver funding line)
 
 ## Limitações atuais
 - Não mede efeitos combinados entre drivers.
