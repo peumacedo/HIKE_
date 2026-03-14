@@ -17,6 +17,7 @@ import { aggregateProjectCashFlowByMonth, generateBaseProjectCashFlow, generateS
 import { calculateProjectFundingNeed, listFundingLinesForOrganization, simulateProjectFunding } from '@/lib/data/funding';
 import { runScenarioSensitivity } from '@/lib/data/sensitivity';
 
+export const dynamic = 'force-dynamic';
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
 }
@@ -166,7 +167,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
           assumptionKey,
           assumptionLabel: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.label ?? assumptionKey,
           value_numeric: delta,
-          unit: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.unit ?? null,
+          unit: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.unit ?? undefined,
         }),
       ),
     );
@@ -199,7 +200,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
           assumptionKey,
           assumptionLabel: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.label ?? assumptionKey,
           value_numeric: delta,
-          unit: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.unit ?? null,
+          unit: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.unit ?? undefined,
         }),
       ),
     );

@@ -10,6 +10,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 
+export const dynamic = 'force-dynamic';
 const CATEGORIES = [
   'Receita / Recebimento',
   'Custos Diretos',
@@ -42,8 +43,8 @@ export default async function PremissasPage() {
       category: String(formData.get('category') || 'Outros'),
       value_numeric: Number(formData.get('valueNumeric') || '') || null,
       value_text: String(formData.get('valueText') || '') || null,
-      unit: String(formData.get('unit') || '') || null,
-      description: String(formData.get('description') || '') || null,
+      unit: String(formData.get('unit') || '') || undefined,
+      description: String(formData.get('description') || '') || undefined,
       active: String(formData.get('active') || 'on') === 'on',
     });
     revalidatePath('/premissas');
@@ -57,8 +58,8 @@ export default async function PremissasPage() {
       category: String(formData.get('category') || 'Outros'),
       value_numeric: Number(formData.get('valueNumeric') || '') || null,
       value_text: String(formData.get('valueText') || '') || null,
-      unit: String(formData.get('unit') || '') || null,
-      description: String(formData.get('description') || '') || null,
+      unit: String(formData.get('unit') || '') || undefined,
+      description: String(formData.get('description') || '') || undefined,
       active: String(formData.get('active') || '') === 'on',
     });
     revalidatePath('/premissas');

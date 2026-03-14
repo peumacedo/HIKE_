@@ -5,6 +5,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { getProjectById } from '@/lib/data/projects';
+import type { CashFlowLineType } from '@/lib/data/cash-flow';
 import {
   aggregateProjectCashFlowByMonth,
   createOmieReconciliationLink,
@@ -17,7 +18,8 @@ import {
   updateProjectCashFlowItem,
 } from '@/lib/data/cash-flow';
 
-const lineTypes = ['revenue', 'direct_cost', 'payroll', 'admin_allocation', 'contingency', 'tax', 'other'];
+export const dynamic = 'force-dynamic';
+const lineTypes: CashFlowLineType[] = ['revenue', 'direct_cost', 'payroll', 'admin_allocation', 'contingency', 'tax', 'other'];
 
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
@@ -47,7 +49,7 @@ export default async function ProjectCashFlowPage({ params, searchParams }: Prop
       fromDate: query.fromDate,
       toDate: query.toDate,
       flowDirection: query.flowDirection as 'inflow' | 'outflow' | undefined,
-      lineType: query.lineType as typeof lineTypes[number] | undefined,
+      lineType: query.lineType as CashFlowLineType | undefined,
       sourceLayer: query.sourceLayer as 'generated' | 'manual' | 'imported_omie' | 'adjustment' | undefined,
       isLocked: parseBool(query.isLocked),
     }),

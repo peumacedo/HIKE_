@@ -17,6 +17,7 @@ import {
   simulateProjectFunding,
 } from '@/lib/data/funding';
 
+export const dynamic = 'force-dynamic';
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
 }

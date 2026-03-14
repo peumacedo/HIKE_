@@ -27,6 +27,7 @@ import {
   upsertProjectAssumptionOverride,
 } from '@/lib/data/assumptions';
 
+export const dynamic = 'force-dynamic';
 type ProjectPageProps = {
   params: Promise<{ id: string }>;
   searchParams?: Promise<{ error?: string }>;
@@ -144,7 +145,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Projec
       assumptionLabel: String(formData.get('assumptionLabel') || ''),
       value_numeric: parseOptionalNumber(formData, 'valueNumeric') ?? null,
       value_text: String(formData.get('valueText') || '') || null,
-      unit: String(formData.get('unit') || '') || null,
+      unit: String(formData.get('unit') || '') || undefined,
     });
     revalidatePath(`/projects/${id}`);
   }
