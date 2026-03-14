@@ -87,8 +87,9 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
   const selectedFundingLineId = query?.fundingLineId ?? '';
   const selectedFundingLine = fundingLines.find((line) => line.id === selectedFundingLineId) ?? null;
 
-  const [baseNeed, scenarioComparisons, selectedOverrides, selectedEffective, sensitivity] = await Promise.all([
+  const [baseNeed, baseSimulation, scenarioComparisons, selectedOverrides, selectedEffective, sensitivity] = await Promise.all([
     calculateProjectFundingNeed(id, null),
+    selectedFundingLine ? simulateProjectFunding(id, selectedFundingLine.id, { scenarioId: null }) : Promise.resolve(null),
     Promise.all(
       scenarios.map(async (scenario) => {
         const need = await calculateProjectFundingNeed(id, scenario.id);
@@ -120,6 +121,10 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
       deltaNet: (scenarioRow?.projected_net ?? 0) - baseRow.projected_net,
     };
   });
+
+  const baseResultAfterFunding = baseSimulation
+    ? baseNeed.operationalResultBeforeFunding - baseSimulation.totalFundingCost
+    : null;
 
   const worstFundingScenario = scenarioComparisons.reduce<typeof scenarioComparisons[number] | null>((acc, row) => {
     if (!acc) return row;
@@ -412,8 +417,8 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
                   <td className="p-2">{money(baseNeed.operationalResultBeforeFunding)}</td>
                   <td className="p-2">{money(baseNeed.peakNegativeCash)}</td>
                   <td className="p-2">{money(baseNeed.maxFundingNeed)}</td>
-                  <td className="p-2">{selectedFundingLine ? money(0) : "Não simulado"}</td>
-                  <td className="p-2">{money(baseNeed.operationalResultBeforeFunding)}</td>
+                  <td className="p-2">{baseSimulation ? money(baseSimulation.totalFundingCost) : "Não simulado"}</td>
+                  <td className="p-2">{baseResultAfterFunding == null ? 'Não simulado' : money(baseResultAfterFunding)}</td>
                 </tr>
                 {scenarioComparisons.map((row) => (
                   <tr key={row.scenario.id} className="border-t">

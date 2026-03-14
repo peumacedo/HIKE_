@@ -31,8 +31,8 @@ Para análises sandbox, `resolveScenarioEffectiveAssumptionsWithTransientOverrid
 ## Funding por cenário e seleção explícita
 Na página `/projects/[id]/scenarios`, a funding line usada para análise passou a ser **explícita** via `fundingLineId` (query string/form GET).
 
-- Sem `fundingLineId`: o comparativo executivo mostra métricas operacionais e funding need; custo financeiro fica como **“Não simulado”**.
-- Com `fundingLineId`: comparativo e sensibilidade simulam custo financeiro com a linha escolhida.
+- Sem `fundingLineId`: o comparativo executivo mostra métricas operacionais e funding need; custo financeiro e resultado após funding ficam como **“Não simulado”**.
+- Com `fundingLineId`: comparativo e sensibilidade simulam custo financeiro com a linha escolhida, inclusive para a linha **Base (sem cenário)** (`scenarioId = null`).
 
 Não existe mais seleção silenciosa por “primeira linha ativa/primeira disponível”.
 
