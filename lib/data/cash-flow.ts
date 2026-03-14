@@ -574,6 +574,154 @@ export async function aggregateOrganizationCashFlowByMonth(organizationId: strin
     }));
 }
 
+
+
+type ProjectionInput = {
+  project: Awaited<ReturnType<typeof getProjectById>>;
+  cashProfile: Awaited<ReturnType<typeof getProjectCashProfile>>;
+  disbursementProfile: Awaited<ReturnType<typeof getProjectDisbursementProfile>>;
+  effectiveMap: Map<string, unknown>;
+};
+
+function buildProjectedCashFlowItems(input: ProjectionInput) {
+  const { project, cashProfile, disbursementProfile, effectiveMap } = input;
+
+  if (!project.contract_value || !project.start_date || !project.end_date) {
+    throw new Error('Pré-condições não atendidas para geração: contract_value, start_date e end_date são obrigatórios.');
+  }
+
+  const months = buildMonths(project.start_date, project.end_date);
+  const contractValue = Number(project.contract_value);
+
+  const advancePct = Number(cashProfile?.advance_percentage ?? effectiveMap.get('advance_percentage') ?? 0);
+  const finalPct = Number(cashProfile?.final_delivery_percentage ?? effectiveMap.get('final_delivery_percentage') ?? 0);
+  const receiptCycleDays = Number(cashProfile?.receipt_cycle_days ?? effectiveMap.get('receipt_cycle_days') ?? 0);
+
+  const directCostPct = Number(effectiveMap.get('direct_cost_pct') ?? 0);
+  const payrollPct = Number(effectiveMap.get('payroll_weight_pct') ?? 0);
+  const adminPct = Number(effectiveMap.get('admin_rate_pct') ?? 0);
+  const contingencyPct = Number(effectiveMap.get('contingency_pct') ?? 0);
+
+  const supplierCycleDays = Number(disbursementProfile?.supplier_payment_cycle_days ?? effectiveMap.get('supplier_payment_cycle_days') ?? 0);
+  const upfrontCostPct = Number(disbursementProfile?.upfront_cost_percentage ?? 0);
+
+  const inflowItems: Array<{ flow_direction: CashFlowDirection; expected_cash_date: string; amount: number }> = [];
+  const outflowItems: Array<{ flow_direction: CashFlowDirection; expected_cash_date: string; amount: number }> = [];
+
+  const advanceAmount = pctAmount(contractValue, advancePct);
+  if (advanceAmount > 0) {
+    const competence = startOfMonth(project.start_date);
+    inflowItems.push({
+      flow_direction: 'inflow',
+      expected_cash_date: toDateString(addDays(competence, receiptCycleDays)),
+      amount: Number(advanceAmount.toFixed(2)),
+    });
+  }
+
+  const finalAmount = pctAmount(contractValue, finalPct);
+  if (finalAmount > 0) {
+    const competence = startOfMonth(project.end_date);
+    inflowItems.push({
+      flow_direction: 'inflow',
+      expected_cash_date: toDateString(addDays(competence, receiptCycleDays)),
+      amount: Number(finalAmount.toFixed(2)),
+    });
+  }
+
+  const residualPct = Math.max(0, 100 - clampPct(advancePct) - clampPct(finalPct));
+  const residualAmount = pctAmount(contractValue, residualPct);
+  if (residualAmount > 0) {
+    const revenueWeights = parseDistributionWeights(months.length, cashProfile?.expected_collection_curve_json);
+    const distribution = distributeAmount(residualAmount, months, revenueWeights);
+    distribution.forEach((entry) => {
+      inflowItems.push({
+        flow_direction: 'inflow',
+        expected_cash_date: toDateString(addDays(entry.month, receiptCycleDays)),
+        amount: entry.amount,
+      });
+    });
+  }
+
+  const directCostBase = pctAmount(contractValue, directCostPct);
+  const directCostUpfrontAmount = pctAmount(directCostBase, upfrontCostPct);
+  const directCostResidual = Math.max(0, directCostBase - directCostUpfrontAmount);
+
+  if (directCostUpfrontAmount > 0) {
+    const competence = startOfMonth(project.start_date);
+    outflowItems.push({
+      flow_direction: 'outflow',
+      expected_cash_date: toDateString(addDays(competence, supplierCycleDays)),
+      amount: Number(directCostUpfrontAmount.toFixed(2)),
+    });
+  }
+
+  if (directCostResidual > 0) {
+    const directCostWeights = parseDistributionWeights(months.length, disbursementProfile?.production_cost_distribution_json);
+    const distribution = distributeAmount(directCostResidual, months, directCostWeights);
+    distribution.forEach((entry) => {
+      outflowItems.push({
+        flow_direction: 'outflow',
+        expected_cash_date: toDateString(addDays(entry.month, supplierCycleDays)),
+        amount: entry.amount,
+      });
+    });
+  }
+
+  const uniformOutflowBases = [pctAmount(contractValue, payrollPct), pctAmount(contractValue, adminPct), pctAmount(contractValue, contingencyPct)];
+  uniformOutflowBases.forEach((base) => {
+    if (base <= 0) return;
+    const distribution = distributeAmount(base, months);
+    distribution.forEach((entry) => {
+      outflowItems.push({
+        flow_direction: 'outflow',
+        expected_cash_date: toDateString(entry.month),
+        amount: entry.amount,
+      });
+    });
+  });
+
+  return [...inflowItems, ...outflowItems];
+}
+
+export async function buildCashFlowProjectionFromResolvedAssumptions(
+  projectId: string,
+  resolvedAssumptions: Array<{ assumption_key: string; effective_value: unknown }>,
+) {
+  const [project, cashProfile, disbursementProfile] = await Promise.all([
+    getProjectById(projectId),
+    getProjectCashProfile(projectId),
+    getProjectDisbursementProfile(projectId),
+  ]);
+
+  const effectiveMap = new Map(resolvedAssumptions.map((row) => [row.assumption_key, row.effective_value]));
+  const projectedItems = buildProjectedCashFlowItems({
+    project,
+    cashProfile,
+    disbursementProfile,
+    effectiveMap,
+  });
+
+  const months = new Map<string, { month: string; projected_inflows: number; projected_outflows: number; projected_net: number }>();
+
+  for (const item of projectedItems) {
+    const month = item.expected_cash_date.slice(0, 7);
+    if (!months.has(month)) months.set(month, { month, projected_inflows: 0, projected_outflows: 0, projected_net: 0 });
+    const current = months.get(month)!;
+    if (item.flow_direction === 'inflow') current.projected_inflows += item.amount;
+    if (item.flow_direction === 'outflow') current.projected_outflows += item.amount;
+    current.projected_net = current.projected_inflows - current.projected_outflows;
+  }
+
+  return Array.from(months.values())
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .map((row) => ({
+      ...row,
+      projected_inflows: Number(row.projected_inflows.toFixed(2)),
+      projected_outflows: Number(row.projected_outflows.toFixed(2)),
+      projected_net: Number(row.projected_net.toFixed(2)),
+    }));
+}
+
 export async function listOmieStagingCandidatesForProject(projectId: string) {
   const project = await getProjectById(projectId);
   const supabase = await createClient();

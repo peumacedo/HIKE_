@@ -32,7 +32,7 @@ const DRIVER_PARAMS = CORE_FINANCIAL_PARAMETERS.filter((row) => SCENARIO_DRIVER_
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ scenarioId?: string }>;
+  searchParams?: Promise<{ scenarioId?: string; fundingLineId?: string }>;
 };
 
 export default async function ProjectScenariosPage({ params, searchParams }: Props) {
@@ -50,14 +50,15 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
 
   const selectedScenarioId = query?.scenarioId ?? scenarios[0]?.id;
   const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null;
-  const selectedFundingLine = fundingLines.find((line) => line.active)?.id ?? fundingLines[0]?.id;
+  const selectedFundingLineId = query?.fundingLineId ?? '';
+  const selectedFundingLine = fundingLines.find((line) => line.id === selectedFundingLineId) ?? null;
 
   const [baseNeed, scenarioComparisons, selectedOverrides, selectedEffective, sensitivity] = await Promise.all([
     calculateProjectFundingNeed(id, null),
     Promise.all(
       scenarios.map(async (scenario) => {
         const need = await calculateProjectFundingNeed(id, scenario.id);
-        const simulation = selectedFundingLine ? await simulateProjectFunding(id, selectedFundingLine, { scenarioId: scenario.id }) : null;
+        const simulation = selectedFundingLine ? await simulateProjectFunding(id, selectedFundingLine.id, { scenarioId: scenario.id }) : null;
         return {
           scenario,
           need,
@@ -68,7 +69,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
     ),
     selectedScenario ? listScenarioOverrides(selectedScenario.id) : Promise.resolve([]),
     selectedScenario ? resolveScenarioEffectiveAssumptions(id, selectedScenario.id) : Promise.resolve([]),
-    selectedScenario && selectedFundingLine ? runScenarioSensitivity(id, selectedScenario.id, selectedFundingLine) : Promise.resolve(null),
+    selectedScenario ? runScenarioSensitivity(id, selectedScenario.id, selectedFundingLine?.id) : Promise.resolve(null),
   ]);
 
   async function createScenarioAction(formData: FormData) {
@@ -129,7 +130,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
       value_numeric: parseOptionalNumber(formData, 'valueNumeric') ?? null,
     });
     await generateScenarioCashFlow(id, scenarioId, { regenerate: true });
-    revalidatePath(`/projects/${id}/scenarios?scenarioId=${scenarioId}`);
+    revalidatePath(`/projects/${id}/scenarios?scenarioId=${scenarioId}${selectedFundingLine ? `&fundingLineId=${selectedFundingLine.id}` : ''}`);
   }
 
   async function toggleScenarioAction(formData: FormData) {
@@ -171,7 +172,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
                   <strong>{scenario.name}</strong> • {scenario.scenario_type} • {scenario.active ? 'ativo' : 'arquivado'}
                 </div>
                 <div className="flex gap-2">
-                  <Link href={`/projects/${id}/scenarios?scenarioId=${scenario.id}`} className="rounded border px-2 py-1">
+                  <Link href={`/projects/${id}/scenarios?scenarioId=${scenario.id}${selectedFundingLine ? `&fundingLineId=${selectedFundingLine.id}` : ''}`} className="rounded border px-2 py-1">
                     Abrir
                   </Link>
                   <form action={toggleScenarioAction}>
@@ -230,7 +231,30 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
           )}
         </SectionCard>
 
-        <SectionCard title="D. Comparativo executivo entre cenários">
+        <SectionCard title="D. Linha de funding usada na análise">
+          <form method="GET" className="grid gap-2 text-sm md:grid-cols-4 md:items-end">
+            <input type="hidden" name="scenarioId" value={selectedScenario?.id ?? ''} />
+            <div className="md:col-span-3">
+              <label className="mb-1 block text-xs font-medium text-slate-600">Funding line para comparativo/sensibilidade</label>
+              <select name="fundingLineId" defaultValue={selectedFundingLine?.id ?? ''} className="w-full rounded border px-2 py-1">
+                <option value="">Sem simulação de funding</option>
+                {fundingLines.map((line) => (
+                  <option key={line.id} value={line.id}>
+                    {line.name} {line.active ? '(ativa)' : '(arquivada)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button className="rounded border px-3 py-2">Aplicar</button>
+          </form>
+          <p className="mt-2 text-xs text-slate-500">
+            {selectedFundingLine
+              ? `Funding line selecionada: ${selectedFundingLine.name}.`
+              : 'Nenhuma funding line selecionada: custos financeiros não são simulados.'}
+          </p>
+        </SectionCard>
+
+        <SectionCard title="E. Comparativo executivo entre cenários">
           <div className="overflow-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-left">
@@ -249,7 +273,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
                   <td className="p-2">{money(baseNeed.operationalResultBeforeFunding)}</td>
                   <td className="p-2">{money(baseNeed.peakNegativeCash)}</td>
                   <td className="p-2">{money(baseNeed.maxFundingNeed)}</td>
-                  <td className="p-2">{money(0)}</td>
+                  <td className="p-2">{selectedFundingLine ? money(0) : "Não simulado"}</td>
                   <td className="p-2">{money(baseNeed.operationalResultBeforeFunding)}</td>
                 </tr>
                 {scenarioComparisons.map((row) => (
@@ -258,8 +282,8 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
                     <td className="p-2">{money(row.need.operationalResultBeforeFunding)}</td>
                     <td className="p-2">{money(row.need.peakNegativeCash)}</td>
                     <td className="p-2">{money(row.need.maxFundingNeed)}</td>
-                    <td className="p-2">{money(row.simulation?.totalFundingCost ?? 0)}</td>
-                    <td className="p-2">{money(row.resultAfterFunding)}</td>
+                    <td className="p-2">{row.simulation ? money(row.simulation.totalFundingCost) : "Não simulado"}</td>
+                    <td className="p-2">{row.simulation ? money(row.resultAfterFunding) : "Não simulado"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -267,9 +291,9 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
           </div>
         </SectionCard>
 
-        <SectionCard title="E. Sensibilidade simples (1 driver por vez)">
+        <SectionCard title="F. Sensibilidade simples (1 driver por vez)">
           {!sensitivity ? (
-            <p className="text-sm text-slate-600">Selecione um cenário e configure ao menos uma linha de funding ativa para análise de sensibilidade.</p>
+            <p className="text-sm text-slate-600">Selecione um cenário para análise de sensibilidade.</p>
           ) : (
             <div className="overflow-auto">
               <table className="min-w-full text-sm">
@@ -289,7 +313,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
                     <td className="p-2">{money(sensitivity.base.operational_result)}</td>
                     <td className="p-2">{money(sensitivity.base.peak_negative_cash)}</td>
                     <td className="p-2">{money(sensitivity.base.max_funding_need)}</td>
-                    <td className="p-2">{money(sensitivity.base.total_funding_cost)}</td>
+                    <td className="p-2">{sensitivity.base.total_funding_cost == null ? "Não simulado" : money(sensitivity.base.total_funding_cost)}</td>
                   </tr>
                   {sensitivity.rows.map((row) => (
                     <tr key={row.variation_label} className="border-t">
@@ -298,16 +322,21 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
                       <td className="p-2">{money(row.operational_result)}</td>
                       <td className="p-2">{money(row.peak_negative_cash)}</td>
                       <td className="p-2">{money(row.max_funding_need)}</td>
-                      <td className="p-2">{money(row.total_funding_cost)}</td>
+                      <td className="p-2">{row.total_funding_cost == null ? "Não simulado" : money(row.total_funding_cost)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+          <p className="mt-2 text-xs text-slate-500">
+            {selectedFundingLine
+              ? `Sensibilidade usando funding line: ${selectedFundingLine.name}.`
+              : 'Sensibilidade sem funding line: apenas métricas operacionais e funding need.'}
+          </p>
         </SectionCard>
 
-        <SectionCard title="Ações de geração">
+        <SectionCard title="G. Ações de geração">
           <div className="flex gap-2 text-sm">
             <form action={regenerateBaseAction}><button className="rounded border px-3 py-2">Regenerar fluxo base</button></form>
           </div>

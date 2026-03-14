@@ -1,12 +1,14 @@
 import {
   CORE_FINANCIAL_PARAMETERS,
-  listScenarioOverrides,
   resolveScenarioEffectiveAssumptions,
-  upsertScenarioOverride,
+  resolveScenarioEffectiveAssumptionsWithTransientOverrides,
 } from '@/lib/data/assumptions';
-import { generateScenarioCashFlow } from '@/lib/data/cash-flow';
-import { calculateProjectFundingNeed, simulateProjectFunding } from '@/lib/data/funding';
-import { getProjectById } from '@/lib/data/projects';
+import { buildCashFlowProjectionFromResolvedAssumptions } from '@/lib/data/cash-flow';
+import {
+  calculateFundingNeedFromMonthlyProjection,
+  getFundingLineById,
+  simulateFundingFromMonthlyProjection,
+} from '@/lib/data/funding';
 
 type DriverVariation = { key: string; label: string; delta: number; mode: 'absolute' | 'days' };
 
@@ -18,21 +20,17 @@ const DEFAULT_VARIATIONS: DriverVariation[] = [
   { key: 'advance_percentage', label: '-10 p.p. entrada inicial', delta: -10, mode: 'absolute' },
 ];
 
-function assumptionLabelFor(key: string) {
-  return CORE_FINANCIAL_PARAMETERS.find((parameter) => parameter.key === key)?.label ?? key;
-}
-
 export async function runScenarioSensitivity(projectId: string, scenarioId: string, fundingLineId?: string) {
-  const project = await getProjectById(projectId);
-  const [originalOverrides, effective] = await Promise.all([
-    listScenarioOverrides(scenarioId),
+  const [baseResolvedAssumptions, fundingLine] = await Promise.all([
     resolveScenarioEffectiveAssumptions(projectId, scenarioId),
+    fundingLineId ? getFundingLineById(fundingLineId) : Promise.resolve(null),
   ]);
-  const originalMap = new Map(originalOverrides.map((row) => [row.assumption_key, row]));
-  const effectiveMap = new Map(effective.map((row) => [row.assumption_key, row.effective_value]));
 
-  const baseFundingNeed = await calculateProjectFundingNeed(projectId, scenarioId);
-  const baseSimulation = fundingLineId ? await simulateProjectFunding(projectId, fundingLineId, { scenarioId }) : null;
+  const baseProjection = await buildCashFlowProjectionFromResolvedAssumptions(projectId, baseResolvedAssumptions);
+  const baseFundingNeed = calculateFundingNeedFromMonthlyProjection(projectId, baseProjection);
+  const baseSimulation = fundingLine ? simulateFundingFromMonthlyProjection(projectId, fundingLine, baseProjection) : null;
+
+  const effectiveMap = new Map(baseResolvedAssumptions.map((row) => [row.assumption_key, row.effective_value]));
 
   const rows: Array<{
     driver_key: string;
@@ -40,27 +38,23 @@ export async function runScenarioSensitivity(projectId: string, scenarioId: stri
     operational_result: number;
     peak_negative_cash: number;
     max_funding_need: number;
-    total_funding_cost: number;
+    total_funding_cost: number | null;
   }> = [];
 
   for (const variation of DEFAULT_VARIATIONS) {
-    const original = originalMap.get(variation.key);
-    const originalNumeric = Number(original?.value_numeric ?? effectiveMap.get(variation.key) ?? 0);
+    const originalNumeric = Number(effectiveMap.get(variation.key) ?? 0);
     const newValue = variation.mode === 'days' ? originalNumeric + variation.delta : originalNumeric + variation.delta;
 
-    await upsertScenarioOverride({
-      organizationId: project.organization_id,
-      scenarioId,
-      assumptionKey: variation.key,
-      assumptionLabel: assumptionLabelFor(variation.key),
-      value_numeric: newValue,
-      unit: variation.mode === 'days' ? 'dias' : '%',
-    });
+    const transientResolvedAssumptions = await resolveScenarioEffectiveAssumptionsWithTransientOverrides(projectId, scenarioId, [
+      {
+        assumptionKey: variation.key,
+        valueNumeric: newValue,
+      },
+    ]);
 
-    await generateScenarioCashFlow(projectId, scenarioId, { regenerate: true });
-
-    const need = await calculateProjectFundingNeed(projectId, scenarioId);
-    const simulation = fundingLineId ? await simulateProjectFunding(projectId, fundingLineId, { scenarioId }) : null;
+    const transientProjection = await buildCashFlowProjectionFromResolvedAssumptions(projectId, transientResolvedAssumptions);
+    const need = calculateFundingNeedFromMonthlyProjection(projectId, transientProjection);
+    const simulation = fundingLine ? simulateFundingFromMonthlyProjection(projectId, fundingLine, transientProjection) : null;
 
     rows.push({
       driver_key: variation.key,
@@ -68,29 +62,16 @@ export async function runScenarioSensitivity(projectId: string, scenarioId: stri
       operational_result: need.operationalResultBeforeFunding,
       peak_negative_cash: need.peakNegativeCash,
       max_funding_need: need.maxFundingNeed,
-      total_funding_cost: simulation?.totalFundingCost ?? 0,
-    });
-
-    await upsertScenarioOverride({
-      organizationId: project.organization_id,
-      scenarioId,
-      assumptionKey: variation.key,
-      assumptionLabel: assumptionLabelFor(variation.key),
-      unit: original?.unit ?? (variation.mode === 'days' ? 'dias' : '%'),
-      value_numeric: original?.value_numeric ?? null,
-      value_text: original?.value_text ?? null,
-      value_json: original?.value_json ?? null,
+      total_funding_cost: simulation?.totalFundingCost ?? null,
     });
   }
-
-  await generateScenarioCashFlow(projectId, scenarioId, { regenerate: true });
 
   return {
     base: {
       operational_result: baseFundingNeed.operationalResultBeforeFunding,
       peak_negative_cash: baseFundingNeed.peakNegativeCash,
       max_funding_need: baseFundingNeed.maxFundingNeed,
-      total_funding_cost: baseSimulation?.totalFundingCost ?? 0,
+      total_funding_cost: baseSimulation?.totalFundingCost ?? null,
     },
     rows,
   };
