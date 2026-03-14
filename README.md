@@ -40,16 +40,30 @@ cp .env.example .env.local
 
 Preencha no `.env.local`:
 - `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `DATABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `OMIE_APP_KEY`
 - `OMIE_APP_SECRET`
 
+
+### Configuração de ambiente (produção segura)
+
+- Variáveis `NEXT_PUBLIC_*` podem ser expostas ao frontend por design e devem conter apenas dados públicos.
+- `DATABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` devem existir apenas no backend/CI e nunca em código cliente.
+- Não commite `.env.local` com segredos.
+
 ### 2) Banco e schema
 
-Aplique as migrations:
-- `supabase/migrations/001_initial_schema.sql`
-- `supabase/migrations/002_auth_profile_trigger.sql`
+Sincronize o schema remoto com o projeto local usando Supabase CLI:
+
+```bash
+supabase login
+supabase link --project-ref zwxjsraakrjczrhrcfna
+supabase db pull
+```
+
+> As migrations versionadas ficam em `supabase/migrations/`.
 
 ### 3) Criar usuário auth e vincular organização
 
