@@ -5,6 +5,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 
+export const dynamic = 'force-dynamic';
 export default async function TemplatesPage() {
   await requireSession();
   const memberships = await getUserMemberships();

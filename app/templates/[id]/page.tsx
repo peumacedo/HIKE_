@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 
+export const dynamic = 'force-dynamic';
 type Props = { params: Promise<{ id: string }> };
 
 export default async function TemplateDetailPage({ params }: Props) {
@@ -25,7 +26,7 @@ export default async function TemplateDetailPage({ params }: Props) {
       assumptionLabel: String(formData.get('assumptionLabel') || ''),
       value_numeric: Number(formData.get('valueNumeric') || '') || null,
       value_text: String(formData.get('valueText') || '') || null,
-      unit: String(formData.get('unit') || '') || null,
+      unit: String(formData.get('unit') || '') || undefined,
     });
     revalidatePath(`/templates/${id}`);
   }

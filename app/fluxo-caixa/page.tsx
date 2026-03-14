@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { requireSession, getUserMemberships } from '@/lib/auth/helpers';
 import { aggregateOrganizationCashFlowByMonth } from '@/lib/data/cash-flow';
 
+export const dynamic = 'force-dynamic';
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
 }

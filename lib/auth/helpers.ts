@@ -3,6 +3,15 @@ import { createClient } from '@/lib/supabase/server';
 
 export type OrgRole = 'admin' | 'analyst' | 'viewer';
 
+export type UserMembership = {
+  organization_id: string;
+  role: OrgRole;
+  organizations: {
+    name: string | null;
+    slug: string | null;
+  } | null;
+};
+
 export async function requireSession() {
   const supabase = await createClient();
   const {
@@ -29,7 +38,23 @@ export async function getUserMemberships() {
     throw error;
   }
 
-  return data;
+  const memberships = (data ?? []).map((membership) => {
+    const organizationData = membership.organizations;
+    const organization = Array.isArray(organizationData) ? organizationData[0] : organizationData;
+
+    return {
+      organization_id: membership.organization_id,
+      role: membership.role as OrgRole,
+      organizations: organization
+        ? {
+            name: organization.name ?? null,
+            slug: organization.slug ?? null,
+          }
+        : null,
+    } satisfies UserMembership;
+  });
+
+  return memberships;
 }
 
 export async function requireOrgRole(organizationId: string, allowedRoles: OrgRole[]) {
