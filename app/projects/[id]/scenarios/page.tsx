@@ -12,8 +12,8 @@ import {
   resolveScenarioEffectiveAssumptions,
   upsertScenarioOverride,
 } from '@/lib/data/assumptions';
-import { archiveProjectScenario, createProjectScenario, listProjectScenarios } from '@/lib/data/scenarios';
-import { generateBaseProjectCashFlow, generateScenarioCashFlow } from '@/lib/data/cash-flow';
+import { archiveProjectScenario, createProjectScenario, listProjectScenarios, updateProjectScenario } from '@/lib/data/scenarios';
+import { aggregateProjectCashFlowByMonth, generateBaseProjectCashFlow, generateScenarioCashFlow } from '@/lib/data/cash-flow';
 import { calculateProjectFundingNeed, listFundingLinesForOrganization, simulateProjectFunding } from '@/lib/data/funding';
 import { runScenarioSensitivity } from '@/lib/data/sensitivity';
 
@@ -29,6 +29,40 @@ function parseOptionalNumber(formData: FormData, fieldName: string) {
 }
 
 const DRIVER_PARAMS = CORE_FINANCIAL_PARAMETERS.filter((row) => SCENARIO_DRIVER_KEYS.includes(row.key as never));
+
+const SCENARIO_PRESETS: Array<{
+  type: 'base' | 'conservative' | 'stress';
+  name: string;
+  description: string;
+  deltas: Record<string, number>;
+}> = [
+  {
+    type: 'base',
+    name: 'Base',
+    description: 'Sem ajustes adicionais sobre a base do projeto.',
+    deltas: {},
+  },
+  {
+    type: 'conservative',
+    name: 'Conservador',
+    description: 'Pressiona custo direto e prazo de recebimento.',
+    deltas: {
+      direct_cost_pct: 5,
+      receipt_cycle_days: 10,
+    },
+  },
+  {
+    type: 'stress',
+    name: 'Stress',
+    description: 'Pressiona custos, recebimento e contingência.',
+    deltas: {
+      direct_cost_pct: 10,
+      receipt_cycle_days: 20,
+      contingency_pct: 5,
+      payroll_weight_pct: 5,
+    },
+  },
+];
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -71,6 +105,36 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
     selectedScenario && selectedFundingLine ? runScenarioSensitivity(id, selectedScenario.id, selectedFundingLine) : Promise.resolve(null),
   ]);
 
+  const [baseMonthlyFlow, selectedScenarioMonthlyFlow] = await Promise.all([
+    aggregateProjectCashFlowByMonth(id, null),
+    selectedScenario ? aggregateProjectCashFlowByMonth(id, selectedScenario.id) : Promise.resolve([]),
+  ]);
+
+  const flowByMonth = baseMonthlyFlow.map((baseRow) => {
+    const scenarioRow = selectedScenarioMonthlyFlow.find((row) => row.month === baseRow.month);
+    return {
+      month: baseRow.month,
+      baseNet: baseRow.projected_net,
+      scenarioNet: scenarioRow?.projected_net ?? 0,
+      deltaNet: (scenarioRow?.projected_net ?? 0) - baseRow.projected_net,
+    };
+  });
+
+  const worstFundingScenario = scenarioComparisons.reduce<typeof scenarioComparisons[number] | null>((acc, row) => {
+    if (!acc) return row;
+    return row.need.maxFundingNeed > acc.need.maxFundingNeed ? row : acc;
+  }, null);
+
+  const bestResultScenario = scenarioComparisons.reduce<typeof scenarioComparisons[number] | null>((acc, row) => {
+    if (!acc) return row;
+    return row.resultAfterFunding > acc.resultAfterFunding ? row : acc;
+  }, null);
+
+  const highestPressureDriver = sensitivity?.rows.reduce<typeof sensitivity.rows[number] | null>((acc, row) => {
+    if (!acc) return row;
+    return row.max_funding_need > acc.max_funding_need ? row : acc;
+  }, null);
+
   async function createScenarioAction(formData: FormData) {
     'use server';
     await requireOrgRole(project.organization_id, ['admin', 'analyst']);
@@ -86,17 +150,7 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
       baseReference: String(formData.get('baseReference') || '') || undefined,
     });
 
-    const presetValues: Record<string, number> = {};
-    if (preset === 'conservative') {
-      presetValues.direct_cost_pct = 5;
-      presetValues.receipt_cycle_days = 10;
-    }
-    if (preset === 'stress') {
-      presetValues.direct_cost_pct = 10;
-      presetValues.receipt_cycle_days = 20;
-      presetValues.contingency_pct = 5;
-      presetValues.payroll_weight_pct = 5;
-    }
+    const presetValues = SCENARIO_PRESETS.find((item) => item.type === preset)?.deltas ?? {};
 
     await Promise.all(
       Object.entries(presetValues).map(([assumptionKey, delta]) =>
@@ -113,6 +167,53 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
 
     await generateScenarioCashFlow(id, scenario.id, { regenerate: true });
     revalidatePath(`/projects/${id}/scenarios`);
+  }
+
+  async function createPresetAction(formData: FormData) {
+    'use server';
+    await requireOrgRole(project.organization_id, ['admin', 'analyst']);
+    const presetType = String(formData.get('presetType') || '') as 'base' | 'conservative' | 'stress';
+    const preset = SCENARIO_PRESETS.find((item) => item.type === presetType);
+    if (!preset) return;
+
+    const scenario = await createProjectScenario({
+      organizationId: project.organization_id,
+      projectId: id,
+      name: preset.name,
+      scenarioType: preset.type,
+      description: preset.description,
+      baseReference: `preset:${preset.type}`,
+    });
+
+    await Promise.all(
+      Object.entries(preset.deltas).map(([assumptionKey, delta]) =>
+        upsertScenarioOverride({
+          organizationId: project.organization_id,
+          scenarioId: scenario.id,
+          assumptionKey,
+          assumptionLabel: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.label ?? assumptionKey,
+          value_numeric: delta,
+          unit: CORE_FINANCIAL_PARAMETERS.find((row) => row.key === assumptionKey)?.unit ?? null,
+        }),
+      ),
+    );
+
+    await generateScenarioCashFlow(id, scenario.id, { regenerate: true });
+    revalidatePath(`/projects/${id}/scenarios`);
+  }
+
+  async function updateScenarioAction(formData: FormData) {
+    'use server';
+    await requireOrgRole(project.organization_id, ['admin', 'analyst']);
+    const scenarioId = String(formData.get('scenarioId') || '');
+    await updateProjectScenario(scenarioId, {
+      name: String(formData.get('name') || ''),
+      scenarioType: String(formData.get('scenarioType') || 'custom') as 'base' | 'conservative' | 'stress' | 'custom',
+      description: String(formData.get('description') || ''),
+      baseReference: String(formData.get('baseReference') || '') || undefined,
+      active: String(formData.get('active') || 'true') === 'true',
+    });
+    revalidatePath(`/projects/${id}/scenarios?scenarioId=${scenarioId}`);
   }
 
   async function updateOverrideAction(formData: FormData) {
@@ -203,6 +304,44 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
           </form>
         </SectionCard>
 
+        <SectionCard title="B.1 Criação rápida dos cenários padrão">
+          <div className="grid gap-2 md:grid-cols-3">
+            {SCENARIO_PRESETS.map((preset) => (
+              <form key={preset.type} action={createPresetAction} className="rounded border p-3 text-sm">
+                <input type="hidden" name="presetType" value={preset.type} />
+                <div className="font-medium">{preset.name}</div>
+                <p className="mt-1 text-xs text-slate-600">{preset.description}</p>
+                <button className="mt-2 rounded border px-2 py-1">Criar {preset.name}</button>
+              </form>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="B.2 Edição de cenário selecionado">
+          {!selectedScenario ? (
+            <p className="text-sm text-slate-600">Selecione um cenário para editar metadados.</p>
+          ) : (
+            <form action={updateScenarioAction} className="grid gap-2 text-sm md:grid-cols-5">
+              <input type="hidden" name="scenarioId" value={selectedScenario.id} />
+              <input name="name" defaultValue={selectedScenario.name} className="rounded border px-2 py-1" required />
+              <select name="scenarioType" defaultValue={selectedScenario.scenario_type} className="rounded border px-2 py-1">
+                {['base', 'conservative', 'stress', 'custom'].map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+              <input name="description" defaultValue={selectedScenario.description ?? ''} className="rounded border px-2 py-1" placeholder="Descrição" />
+              <input name="baseReference" defaultValue={selectedScenario.base_reference ?? ''} className="rounded border px-2 py-1" placeholder="Base reference" />
+              <div className="flex gap-2">
+                <select name="active" defaultValue={selectedScenario.active ? 'true' : 'false'} className="rounded border px-2 py-1">
+                  <option value="true">Ativo</option>
+                  <option value="false">Arquivado</option>
+                </select>
+                <button className="rounded bg-slate-900 px-3 py-1 text-white">Salvar</button>
+              </div>
+            </form>
+          )}
+        </SectionCard>
+
         <SectionCard title="C. Override de cenário">
           {!selectedScenario ? (
             <p className="text-sm text-slate-600">Selecione um cenário para editar drivers.</p>
@@ -265,6 +404,55 @@ export default async function ProjectScenariosPage({ params, searchParams }: Pro
               </tbody>
             </table>
           </div>
+        </SectionCard>
+
+        <SectionCard title="D.1 Leitura executiva comparativa">
+          <div className="space-y-1 text-sm text-slate-700">
+            <p>
+              Base do projeto: resultado operacional <strong>{money(baseNeed.operationalResultBeforeFunding)}</strong> e necessidade máxima de funding <strong>{money(baseNeed.maxFundingNeed)}</strong>.
+            </p>
+            <p>
+              Melhor resultado após funding entre cenários simulados:{' '}
+              <strong>{bestResultScenario ? `${bestResultScenario.scenario.name} (${money(bestResultScenario.resultAfterFunding)})` : 'sem cenários simulados'}</strong>.
+            </p>
+            <p>
+              Cenário com maior pressão de funding:{' '}
+              <strong>{worstFundingScenario ? `${worstFundingScenario.scenario.name} (${money(worstFundingScenario.need.maxFundingNeed)})` : 'sem cenários simulados'}</strong>.
+            </p>
+            <p>
+              Driver com maior pressão na sensibilidade:{' '}
+              <strong>{highestPressureDriver ? `${highestPressureDriver.driver_key} (${highestPressureDriver.variation_label})` : 'sensibilidade indisponível'}</strong>.
+            </p>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="D.2 Impacto no fluxo (base x cenário selecionado)">
+          {!selectedScenario ? (
+            <p className="text-sm text-slate-600">Selecione um cenário para comparar o fluxo mensal com a base.</p>
+          ) : (
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left">
+                  <tr>
+                    <th className="p-2">Mês</th>
+                    <th className="p-2">Net base</th>
+                    <th className="p-2">Net cenário</th>
+                    <th className="p-2">Delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flowByMonth.map((row) => (
+                    <tr key={row.month} className="border-t">
+                      <td className="p-2">{row.month}</td>
+                      <td className="p-2">{money(row.baseNet)}</td>
+                      <td className="p-2">{money(row.scenarioNet)}</td>
+                      <td className="p-2">{money(row.deltaNet)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="E. Sensibilidade simples (1 driver por vez)">
